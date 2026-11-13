@@ -97,7 +97,7 @@ Like `23`, but also returns counts and optional lists of loans and holds, plus c
 Fixed part: renewal policy (`N`), no-block (`N`), transaction date, no-block due date (18 spaces).
 Reply `12`: ok (`1`/`0`), renewal ok, magnetic media (`Y`/`N`/`U`), **desensitize** (`Y`/`N`/`U`), date, then `AB`, `AJ`, **`AH` due date**, and `AF` message.
 
-- **Turn the security bit off only when the reply has ok = `1` and desensitize = `Y`**. On RFID that means setting the tag's AFI to "checked out" or clearing EAS.
+- **Act on the security bit only when the reply has ok = `1` and desensitize = `Y`.** What "act" means depends on the security design. With UHF and a gate that asks the system, there's nothing to write. If the tag carries a flag, write "checked out" and confirm the check-out only once the write succeeds. See [`uhf-rfid.md`](uhf-rfid.md#security-checked-out-or-not).
 - `AllowItemsOnHoldCheckoutSIP` is `0`, so an item on hold for someone else is refused (`120`…).
 
 ### 09 → 10 Check-in (not tested yet)
@@ -107,7 +107,7 @@ Reply `12`: ok (`1`/`0`), renewal ok, magnetic media (`Y`/`N`/`U`), **desensitiz
 Fixed part: no-block (`N`), transaction date, return date. `AP` = current location.
 Reply `10`: ok, **resensitize** (`Y`/`N`/`U`), magnetic media, alert (`Y`/`N`), date, then `AB`, `AQ` permanent location, `CL` sort bin, and `CV` alert type.
 
-- **Turn the security bit back on when resensitize = `Y`.**
+- **When resensitize = `Y`, set the item back to "on shelf".** With a tag flag, write it; with a gate that asks the system, Koha's own status change is enough.
 - If alert = `Y`, the item needs staff attention, e.g. `CV01` = hold for another patron, `CV04` = send to another branch. Put it in the staff bin, not back on the shelf.
 
 ## Self-check flow
@@ -115,10 +115,13 @@ Reply `10`: ok, **resensitize** (`Y`/`N`/`U`), magnetic media, alert (`Y`/`N`), 
 ```
 on start:       connect → 93 login → 99 status (repeat every ~5 min as keep-alive)
 patron card:    23 patron status → refuse if BL=N, CQ=N, or blocks
-for each tag:   read barcode → 17 item info (exact, then repaired forms)
-  check-out:    11 with the barcode Koha recognised → if ok=1 and desensitize=Y, set AFI/EAS off
-  check-in:     09 → if resensitize=Y, set AFI/EAS on → if alert=Y, divert to staff bin
+tags in range:  de-duplicate EPCs → decode to barcodes → drop any that don't decode
+for each tag:   17 item info (exact barcode, then repaired forms) → show titles, patron confirms
+  check-out:    11 with the barcode Koha recognised → if ok=1 and desensitize=Y, mark checked out*
+  check-in:     09 → if resensitize=Y, mark on shelf* → if alert=Y, divert to staff bin
 on error:       96 → resend once; connection lost → reconnect and log in again
+
+* only if the tag carries the security flag; see uhf-rfid.md
 ```
 
 Always send `11` / `09` with the barcode **as Koha recognised it** in the `17` step (the exact value or the repaired form that matched), not the raw tag value.
@@ -131,6 +134,6 @@ Always send `11` / `09` with the barcode **as Koha recognised it** in the `17` s
 
 ## Still to find out
 
-- **RFID tag data model:** which standard the tags use (ISO 28560-2, ISO 28560-3, or a vendor format), and whether the barcode is stored with or without the check digit. Read a few existing tagged books to find out.
-- **AFI values** for "on shelf" and "checked out" (often `0x07` and `0xC2`), or whether the system uses EAS instead.
-- What the RFID middleware product (or reader SDK) expects: its SIP2 options, and whether it sends checksums.
+- **How the barcode is encoded in the EPC** (step 2 of [`steps.md`](../steps.md)), and whether it includes the check digit. Options and a proposal are in [`uhf-rfid.md`](uhf-rfid.md#tag-encoding-barcode--epc).
+- **Security design:** a gate that asks the system, or a flag written to the tag. See [`uhf-rfid.md`](uhf-rfid.md#security-checked-out-or-not).
+- Whether to use `pysip2` (step 3) or `koha_rfid/sip2.py`. Either way, check that it sends `AY`/`AZ` and handles the empty-title "unknown item" reply.

@@ -3,16 +3,30 @@
 Groundwork for RFID self-check middleware that connects library RFID readers to [Koha](https://koha-community.org/) over SIP2. It's being built against a Koha 21.11 test copy of the Middelburg (Mpumalanga) library data.
 
 ```
-RFID reader ──USB/serial──> middleware ──SIP2 over TCP──> Koha SIP server
-                             (this repo)                   (port 6002)
+UHF reader ──LLRP/Ethernet──> middleware ──SIP2 over TCP──> Koha SIP server
+(Impinj Speedway R220)         (this repo)                   (port 6002)
+
+Zebra ZD500R ── encodes tags + prints barcode labels
 ```
 
-Koha never sees the reader. The middleware reads the barcode from the tag, asks Koha about it over SIP2, and sets the tag's security bit (AFI/EAS) based on Koha's reply.
+Koha never sees the reader. The middleware reads EPCs from the UHF tags, decodes each one to an item barcode, asks Koha about it over SIP2, and handles security based on Koha's reply.
+
+## Plan
+
+From [`steps.md`](steps.md). Each step is read-only until step 5:
+
+1. **Read tags:** `sllurp` against the R220, print EPCs. Check the 915–919 MHz region setting.
+2. **Decode EPC → barcode,** offline, tested against known tag/item pairs.
+3. **Barcode → SIP item info,** offline (`17` message).
+4. **Join them:** reader → decode → SIP → print the title. This is the first real milestone.
+5. **Check-out** (`11`) against the `middelburg` test instance.
 
 ## What's here
 
 | Path | What it is |
 |---|---|
+| [`steps.md`](steps.md) | The step-by-step build plan |
+| [`docs/uhf-rfid.md`](docs/uhf-rfid.md) | UHF specifics: the test hardware, radio band, barcode-in-EPC encodings (with a proposal), security options, and what changes with cheaper readers or with HF |
 | [`docs/barcode-format.md`](docs/barcode-format.md) | The item barcode standard (14-digit Codabar, Luhn check digit), how well the real data follows it, and what that means for reading tags. Also covers patron card formats |
 | [`docs/sip2-koha.md`](docs/sip2-koha.md) | The SIP2 messages the middleware needs, with replies captured from the test server, Koha's quirks, and the self-check flow |
 | [`koha_rfid/barcode.py`](koha_rfid/barcode.py) | Check digit, format classification, and `lookup_candidates()` (exact barcode first, then repaired forms) |
