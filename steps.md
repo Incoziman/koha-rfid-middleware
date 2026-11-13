@@ -1,4 +1,4 @@
-##Steps to be taken
+# Steps to be taken
 Step 1 — read tags, nothing else. Run sllurp against the R220 and print EPCs to the console. Confirm South African band settings (915–919) and that your test tags report consistently. No Koha involvement.
 
 Step 2 — decode EPC → barcode, offline. A function that takes an EPC string and returns a barcode. Test it against known tag/item pairs with no reader and no network. This is where you’ll find encoding surprises — padding, hex vs ASCII, byte order.
