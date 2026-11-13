@@ -1,2 +1,6 @@
 # Private, unredacted notes: never commit
 *.private.md
+
+# Python
+__pycache__/
+*.pyc
