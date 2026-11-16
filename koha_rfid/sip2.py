@@ -146,6 +146,81 @@ def lookup_item(client: "Client", institution: str, barcode: str) -> Optional[It
     return None
 
 
+def _f(fields: Dict[str, List[str]], key: str) -> str:
+    return fields.get(key, [""])[0].strip()
+
+
+@dataclass(frozen=True)
+class PatronStatus:
+    """From a 24 reply. Koha enforces its own rules at check-out; this is the pre-check."""
+    valid: bool             # BL = Y
+    pin_ok: Optional[bool]  # CQ = Y/N, None if Koha didn't say
+    flags: str              # 14-char patron status; 'Y' = that privilege denied
+    name: str               # AE
+    message: str            # AF
+
+    @property
+    def charge_denied(self) -> bool:
+        return self.flags[:1] == "Y"
+
+    def refusal(self, pin_required: bool) -> Optional[str]:
+        """Why this patron can't check out, or None if they can."""
+        if not self.valid:
+            return self.message or "not a valid patron"
+        if pin_required and self.pin_ok is not True:
+            return "wrong PIN"
+        if self.charge_denied:
+            return self.message or "check-out privileges denied"
+        return None
+
+
+def get_patron_status(client: "Client", institution: str, card: str, pin: str = "") -> PatronStatus:
+    _, fixed, f = parse(client.send(patron_status(institution, card, pin)))
+    cq = _f(f, "CQ")
+    return PatronStatus(
+        valid=_f(f, "BL") == "Y",
+        pin_ok=None if not cq else cq == "Y",
+        flags=fixed[:14], name=_f(f, "AE"), message=_f(f, "AF"))
+
+
+@dataclass(frozen=True)
+class CircResult:
+    """From a 12 (check-out) or 10 (check-in) reply."""
+    ok: bool
+    security: str      # 12: desensitize, 10: resensitize (Y/N/U)
+    alert: bool        # 10 only: item needs staff attention
+    alert_type: str    # CV, 10 only, e.g. 01 = hold for another patron, 04 = send to other branch
+    due_date: str      # AH, 12 only
+    message: str       # AF
+    raw: str           # the full reply, for the transaction log
+
+
+def _send_write(client, msg: str) -> str:
+    # A Session would retry on a dropped connection; a write must never be resent.
+    return getattr(client, "send_once", client.send)(msg)
+
+
+def do_checkout(client: "Client", institution: str, card: str, barcode: str,
+                pin: str = "") -> CircResult:
+    """11 check-out. Send the barcode as Koha recognised it in lookup_item()."""
+    reply = _send_write(client, checkout(institution, card, barcode, pin))
+    cmd, fixed, f = parse(reply)
+    if cmd != "12":
+        raise IOError(f"expected a 12 reply, got {reply!r}")
+    return CircResult(ok=fixed[:1] == "1", security=fixed[3:4], alert=False, alert_type="",
+                      due_date=_f(f, "AH"), message=_f(f, "AF"), raw=reply)
+
+
+def do_checkin(client: "Client", institution: str, location: str, barcode: str) -> CircResult:
+    """09 check-in. Send the barcode as Koha recognised it in lookup_item()."""
+    reply = _send_write(client, checkin(institution, location, barcode))
+    cmd, fixed, f = parse(reply)
+    if cmd != "10":
+        raise IOError(f"expected a 10 reply, got {reply!r}")
+    return CircResult(ok=fixed[:1] == "1", security=fixed[1:2], alert=fixed[3:4] == "Y",
+                      alert_type=_f(f, "CV"), due_date="", message=_f(f, "AF"), raw=reply)
+
+
 class Client:
     """One SIP2 connection. Not thread-safe; use one per self-check station."""
 
@@ -177,3 +252,66 @@ class Client:
 
     def close(self) -> None:
         self.sock.close()
+
+
+class Session:
+    """A logged-in Client that keeps itself alive and reconnects after a drop.
+
+    send() retries once on a lost connection, so use it only for read-only
+    messages (17, 23, 99). For 11 / 09 use send_once(): if the connection drops
+    mid-transaction we can't know whether Koha applied it, and resending a
+    check-out to the same patron would be a renewal.
+    """
+
+    KEEPALIVE_S = 240   # docs/sip2-koha.md: repeat 99 every ~5 min
+
+    def __init__(self, host: str, port: int, user: str, password: str, location: str,
+                 timeout: float = 10.0):
+        self.host, self.port, self.user, self.location = host, port, user, location
+        self._pw, self._timeout = password, timeout
+        self.client: Optional[Client] = None
+        self.last = 0.0
+        self.connect()
+
+    def connect(self) -> None:
+        self.close()
+        self.client = Client(self.host, self.port, timeout=self._timeout)
+        _, fixed, _ = parse(self.client.send(login(self.user, self._pw, self.location)))
+        if fixed != "1":
+            raise PermissionError("SIP login failed - check the user and password")
+        self.client.send(sc_status())
+        self.last = time.time()
+
+    def send(self, msg: str) -> str:
+        try:
+            reply = self.client.send(msg)
+        except (OSError, ConnectionError):
+            self.connect()
+            reply = self.client.send(msg)
+        self.last = time.time()
+        return reply
+
+    def send_once(self, msg: str) -> str:
+        """Send without retrying. On a drop, reconnect for next time and re-raise."""
+        try:
+            reply = self.client.send(msg)
+        except (OSError, ConnectionError):
+            try:
+                self.connect()
+            except OSError:
+                pass
+            raise
+        self.last = time.time()
+        return reply
+
+    def keepalive(self) -> None:
+        if time.time() - self.last > self.KEEPALIVE_S:
+            self.send(sc_status())
+
+    def close(self) -> None:
+        if self.client:
+            try:
+                self.client.close()
+            except OSError:
+                pass
+            self.client = None

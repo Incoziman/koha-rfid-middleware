@@ -23,51 +23,6 @@ from koha_rfid.barcode import classify  # noqa: E402
 from koha_rfid.epc import NotLibraryTag, decode_epc  # noqa: E402
 from koha_rfid.reader import R220Reader  # noqa: E402
 
-KEEPALIVE_S = 240   # docs/sip2-koha.md: repeat 99 every ~5 min
-
-
-class Sip:
-    """A logged-in SIP connection that reconnects once if the server drops it."""
-
-    def __init__(self, a, password):
-        self.a, self.pw = a, password
-        self.c = None
-        self.last = 0.0
-        self.connect()
-
-    def connect(self):
-        if self.c:
-            try:
-                self.c.close()
-            except OSError:
-                pass
-        self.c = sip2.Client(self.a.sip_host, self.a.sip_port)
-        _, fixed, _ = sip2.parse(self.c.send(sip2.login(self.a.user, self.pw, self.a.institution)))
-        if fixed != "1":
-            raise SystemExit("SIP login FAILED - check --user and SIP_PASSWORD")
-        _, fixed, _ = sip2.parse(self.c.send(sip2.sc_status()))
-        self.last = time.time()
-        return fixed
-
-    def lookup(self, barcode):
-        try:
-            r = sip2.lookup_item(self.c, self.a.institution, barcode)
-        except (OSError, ConnectionError):
-            print("  (SIP connection lost - reconnecting)")
-            self.connect()
-            r = sip2.lookup_item(self.c, self.a.institution, barcode)
-        self.last = time.time()
-        return r
-
-    def keepalive(self):
-        if time.time() - self.last > KEEPALIVE_S:
-            try:
-                self.c.send(sip2.sc_status())
-            except (OSError, ConnectionError):
-                self.connect()
-            self.last = time.time()
-
-
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("reader", help="R220 IP address")
@@ -87,7 +42,10 @@ def main() -> int:
         ap.error("set the SIP password in the SIP_PASSWORD environment variable")
 
     # SIP first: no point reading tags if Koha isn't there.
-    sip = Sip(a, pw)
+    try:
+        sip = sip2.Session(a.sip_host, a.sip_port, a.user, pw, a.institution)
+    except PermissionError as e:
+        raise SystemExit(str(e))
     print(f"SIP: logged in to {a.sip_host}:{a.sip_port} as {a.user}")
 
     seen = set()
@@ -126,7 +84,7 @@ def main() -> int:
                 continue
             kind = classify(barcode).kind
             t0 = time.time()
-            item = sip.lookup(barcode)
+            item = sip2.lookup_item(sip, a.institution, barcode)
             ms = (time.time() - t0) * 1000
             if item is None:
                 unknown.append(barcode)
@@ -141,7 +99,7 @@ def main() -> int:
         pass
     finally:
         reader.stop()
-        sip.c.close()
+        sip.close()
 
     print(f"\n==== Summary ====\n{len(seen)} distinct tags: {len(found)} items found in Koha, "
           f"{len(unknown)} decoded but not in Koha, {len(foreign)} not library tags")

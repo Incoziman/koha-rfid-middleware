@@ -91,5 +91,99 @@ class LookupItem(unittest.TestCase):
         self.assertEqual(c.asked, ["33228999900010", "3322899990001"])
 
 
+class Canned:
+    """Returns one fixed reply; records which send method was used."""
+
+    def __init__(self, reply, with_send_once=False):
+        self.reply, self.used, self.sent = reply, [], []
+        if with_send_once:
+            self.send_once = lambda m: self._go("send_once", m)
+
+    def _go(self, how, msg):
+        self.used.append(how)
+        self.sent.append(msg)
+        return self.reply
+
+    def send(self, msg):
+        return self._go("send", msg)
+
+
+DATE = "20261116    120000"
+
+
+class Patron(unittest.TestCase):
+    def test_unknown_card_captured(self):
+        c = Canned("24YYYY          00020261113    125444AE|AA999|BLN|"
+                   "AFInvalid cardnumber|AOMIDDL|")
+        p = sip2.get_patron_status(c, "MIDDL", "999")
+        self.assertFalse(p.valid)
+        self.assertEqual(p.refusal(pin_required=False), "Invalid cardnumber")
+
+    def test_valid_patron(self):
+        c = Canned("24" + " " * 14 + "000" + DATE + "AOMIDDL|AA64|AEsipterm1|BLY|CQY|")
+        p = sip2.get_patron_status(c, "MIDDL", "64", "1234")
+        self.assertTrue(p.valid and p.pin_ok)
+        self.assertEqual(p.name, "sipterm1")
+        self.assertIsNone(p.refusal(pin_required=True))
+
+    def test_wrong_pin_and_charge_denied(self):
+        p = sip2.get_patron_status(Canned("24" + " " * 14 + "000" + DATE + "BLY|CQN|"), "M", "1")
+        self.assertEqual(p.refusal(pin_required=True), "wrong PIN")
+        self.assertIsNone(p.refusal(pin_required=False))
+        p = sip2.get_patron_status(Canned("24Y" + " " * 13 + "000" + DATE + "BLY|AFFines|"), "M", "1")
+        self.assertEqual(p.refusal(pin_required=False), "Fines")
+
+
+class Circulation(unittest.TestCase):
+    # Real replies from the middelburg server, 2026-11-16 (step 5, item 3322810009661).
+    CHECKOUT_OK = ("121NNY20261116    123631AOMIDDL|AA64|AB3322810009661|AJSonder gister se spoor |"
+                   "AH20261123    235900|CK001|AY5AZE2E5")
+    CHECKIN_OK = ("101YNN20261116    123631AOMIDDL|AB3322810009661|AQMIDDL|AJSonder gister se spoor |"
+                  "AA64|CK001|CSLP AF COET|AY4AZE119")
+
+    def test_checkout_ok_captured(self):
+        c = Canned(self.CHECKOUT_OK, with_send_once=True)
+        r = sip2.do_checkout(c, "MIDDL", "64", "3322810009661")
+        self.assertTrue(r.ok)
+        self.assertEqual(r.security, "Y")                       # desensitize
+        self.assertEqual(r.due_date, "20261123    235900")      # SIP date format, not ISO
+        self.assertTrue(c.sent[0].startswith("11NN"))
+        self.assertTrue(sip2.verify(r.raw))
+
+    def test_checkin_ok_captured(self):
+        r = sip2.do_checkin(Canned(self.CHECKIN_OK), "MIDDL", "MIDDL", "3322810009661")
+        self.assertTrue(r.ok)
+        self.assertEqual(r.security, "Y")                       # resensitize
+        self.assertFalse(r.alert)
+        self.assertTrue(sip2.verify(r.raw))
+
+    def test_writes_never_use_the_retrying_send(self):
+        c = Canned("121NUY" + DATE + "AB1|", with_send_once=True)
+        sip2.do_checkout(c, "MIDDL", "64", "1")
+        c2 = Canned("101YUN" + DATE + "AB1|", with_send_once=True)
+        sip2.do_checkin(c2, "MIDDL", "MIDDL", "1")
+        self.assertEqual(c.used + c2.used, ["send_once", "send_once"])
+
+    def test_checkout_refused_captured(self):
+        # Real reply from the middelburg server, 2026-11-16 (IndependentBranches refusal).
+        r = sip2.do_checkout(Canned(
+            "120NUN20261116    122045AOMIDDL|AA64|AB3322810009661|AJSonder gister se spoor |"
+            "AH|AFIssue failed : ITEMNOTSAMEBRANCH|BLY|AY7AZDB67"), "MIDDL", "64", "3322810009661")
+        self.assertFalse(r.ok)
+        self.assertEqual(r.security, "N")
+        self.assertEqual(r.due_date, "")
+        self.assertEqual(r.message, "Issue failed : ITEMNOTSAMEBRANCH")
+        self.assertTrue(sip2.verify(r.raw))
+
+    def test_checkin_with_alert(self):
+        r = sip2.do_checkin(Canned("101YUY" + DATE + "AOMIDDL|AB1|AQMIDDL|CV01|"), "M", "M", "1")
+        self.assertTrue(r.ok and r.alert)
+        self.assertEqual((r.security, r.alert_type), ("Y", "01"))
+
+    def test_wrong_reply_type_raises(self):
+        with self.assertRaises(IOError):
+            sip2.do_checkin(Canned("96"), "M", "M", "1")
+
+
 if __name__ == "__main__":
     unittest.main()

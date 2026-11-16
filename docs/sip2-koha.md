@@ -90,7 +90,7 @@ Decide whether stations ask for a PIN. If they do, send it in `AD` and refuse wh
 ### 63 → 64 Patron information (tested in the setup notes)
 Like `23`, but also returns counts and optional lists of loans and holds, plus contact details. Use `23` unless the screen needs to show the patron's loans.
 
-### 11 → 12 Check-out (not tested yet)
+### 11 → 12 Check-out (tested 2026-11-16)
 ```
 >> 11NN<date><18 spaces>AOMIDDL|AA<card>|AB<barcode>|AC|AD<pin>|
 ```
@@ -98,15 +98,27 @@ Fixed part: renewal policy (`N`), no-block (`N`), transaction date, no-block due
 Reply `12`: ok (`1`/`0`), renewal ok, magnetic media (`Y`/`N`/`U`), **desensitize** (`Y`/`N`/`U`), date, then `AB`, `AJ`, **`AH` due date**, and `AF` message.
 
 - **Act on the security bit only when the reply has ok = `1` and desensitize = `Y`.** What "act" means depends on the security design. With UHF and a gate that asks the system, there's nothing to write. If the tag carries a flag, write "checked out" and confirm the check-out only once the write succeeds. See [`uhf-rfid.md`](uhf-rfid.md#security-checked-out-or-not).
+Captured (card `64` = test patron `sipterm1`):
+```
+<< 121NNY20261116    123631AOMIDDL|AA64|AB3322810009661|AJSonder gister se spoor |AH20261123    235900|CK001|AY5AZE2E5
+```
+- `AH` (due date) comes in the SIP date format `YYYYMMDDZZZZHHMMSS`, not ISO.
+- With `IndependentBranches` on, Koha refuses with `120NUN…AFIssue failed : ITEMNOTSAMEBRANCH` when the item's branch isn't the SIP session's branch. The live system has it **off**; the test instance was switched off to match (2026-11-16).
+- Checking out an item already on loan to the same patron is a **renewal** in Koha. `tools/step5_circulate.py` skips items on loan for that reason.
 - `AllowItemsOnHoldCheckoutSIP` is `0`, so an item on hold for someone else is refused (`120`…).
 
-### 09 → 10 Check-in (not tested yet)
+### 09 → 10 Check-in (tested 2026-11-16)
 ```
 >> 09N<date><date>APMIDDL|AOMIDDL|AB<barcode>|AC|
 ```
 Fixed part: no-block (`N`), transaction date, return date. `AP` = current location.
 Reply `10`: ok, **resensitize** (`Y`/`N`/`U`), magnetic media, alert (`Y`/`N`), date, then `AB`, `AQ` permanent location, `CL` sort bin, and `CV` alert type.
 
+Captured:
+```
+<< 101YNN20261116    123631AOMIDDL|AB3322810009661|AQMIDDL|AJSonder gister se spoor |AA64|CK001|CSLP AF COET|AY4AZE119
+```
+- The reply includes `AA`, the card of the patron who had the item. Card numbers can be SA ID numbers: don't log replies unmasked.
 - **When resensitize = `Y`, set the item back to "on shelf".** With a tag flag, write it; with a gate that asks the system, Koha's own status change is enough.
 - If alert = `Y`, the item needs staff attention, e.g. `CV01` = hold for another patron, `CV04` = send to another branch. Put it in the staff bin, not back on the shelf.
 

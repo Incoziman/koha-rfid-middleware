@@ -76,3 +76,21 @@ class R220Reader:
 
     def stop(self) -> None:
         self._client.disconnect(timeout=5)
+
+
+def collect_epcs(host: str, seconds: float = 3.0, **kwargs) -> dict:
+    """Inventory for `seconds`, return {epc_hex: (antenna, best_rssi)} for every tag seen."""
+    import time
+    seen: dict = {}
+
+    def on_epc(epc, ant, rssi):
+        if epc not in seen or rssi > seen[epc][1]:
+            seen[epc] = (ant, rssi)
+
+    r = R220Reader(host, on_epc, **kwargs)
+    r.start()
+    try:
+        time.sleep(seconds)
+    finally:
+        r.stop()
+    return dict(seen)
