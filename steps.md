@@ -8,3 +8,5 @@ Step 3 — barcode → SIP item info, offline. A pysip2 script that logs in and 
 Step 4 — join them. Reader → decode → SIP item info → print title. Read-only, so a mistake can’t corrupt circulation data. This is the real milestone.
 
 Step 5 — checkout. Only now add the 11 message, against your middelburg test instance.
+
+Step 6 — field test with real books. Tag 10–20 real MIDDL books (checked against Koha with tools/check_test_books.py, printed with print_rfid_labels.ps1 -CsvFile), tune the pad power, then run the scenario list in docs/field-test.md: stacks, orientation, holds, blocked patrons, stray tags, Koha down, exit gate. Still against the test instance.

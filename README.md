@@ -20,6 +20,7 @@ From [`steps.md`](steps.md). Each step is read-only until step 5:
 3. **Barcode → SIP item info,** offline (`17` message).
 4. **Join them:** reader → decode → SIP → print the title. This is the first real milestone.
 5. **Check-out** (`11`) against the `middelburg` test instance.
+6. **Field test** with real books: [`docs/field-test.md`](docs/field-test.md).
 
 ## What's here
 
@@ -34,6 +35,8 @@ From [`steps.md`](steps.md). Each step is read-only until step 5:
 | [`koha_rfid/reader.py`](koha_rfid/reader.py) | Reader adapter: `R220Reader` (LLRP via `sllurp==2.0.1`) hands raw EPCs to a callback. The only hardware-specific code |
 | [`tools/step4_identify.py`](tools/step4_identify.py) | Step 4, read-only: reader → decode → SIP `17` → prints title and status for each tag in range |
 | [`tools/step5_circulate.py`](tools/step5_circulate.py) | Step 5, **writes to Koha (test instance only)**: check-out / check-in for tags on the reader or typed barcodes. Confirms first, verifies each with a `17`, logs to `logs/circulation.jsonl` |
+| [`tools/check_test_books.py`](tools/check_test_books.py) | Read-only: checks real books' barcodes against Koha over SIP and writes `test_books.csv` for the label printer |
+| [`docs/field-test.md`](docs/field-test.md) | Step 6: the hands-on test plan with real books (pad tuning, scenarios, clean-up, results table) |
 | [`koha_rfid/sip2.py`](koha_rfid/sip2.py) | SIP2 message builders, `AY`/`AZ` checksums, reply parser, a simple client |
 | [`tools/sip2_probe.py`](tools/sip2_probe.py) | Read-only SIP2 test: login, status, and item lookups with fallback. Runs on Windows or Linux |
 | [`tools/barcode_report.py`](tools/barcode_report.py) | Counts barcode formats in a Koha database. Prints only counts, never barcodes |

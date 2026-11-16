@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
 Print item barcode labels on a Zebra ZD500R and write the same barcode to each label's UHF tag.
 
@@ -9,8 +9,10 @@ For each barcode, one ZPL label that:
   - reads the tag back and returns it to the host (only seen with -PrinterHost),
   - prints a Codabar barcode and the spaced human-readable number.
 
-Barcodes come from -Barcode (sent exactly as given), or are generated in the
-standard format with -Start/-Count (3 + institution + 8-digit item + Luhn check).
+Barcodes come from -Barcode (sent exactly as given), from -CsvFile (the output
+of tools/check_test_books.py: real Koha books, with their titles printed on the
+label), or are generated in the standard format with -Start/-Count
+(3 + institution + 8-digit item + Luhn check).
 See docs/barcode-format.md, "Printing test RFID labels".
 
 Layout is for a 203 dpi printer and a label at least 50 mm wide.
@@ -25,12 +27,17 @@ powershell -ExecutionPolicy Bypass -File tools\print_rfid_labels.ps1 -Barcode 33
 powershell -ExecutionPolicy Bypass -File tools\print_rfid_labels.ps1 -Start 99990001 -Count 3 -PrinterHost 192.168.1.50
 
 .EXAMPLE
+# Real books checked against Koha by tools/check_test_books.py
+powershell -ExecutionPolicy Bypass -File tools\print_rfid_labels.ps1 -CsvFile test_books.csv -PrinterHost 192.168.1.50
+
+.EXAMPLE
 # Printer on USB, shared in Windows as "ZD500R" (no read-back over this path)
 powershell -ExecutionPolicy Bypass -File tools\print_rfid_labels.ps1 -Barcode 33228100096617 -PrinterShare \\localhost\ZD500R
 #>
 [CmdletBinding()]
 param(
     [string[]]$Barcode = @(),
+    [string]$CsvFile,
     [int]$Start = -1,
     [int]$Count = 0,
     [string]$Institution = '3228',
@@ -67,6 +74,14 @@ function Get-Epc([string]$Code) {
 $codes = New-Object System.Collections.Generic.List[string]
 # "powershell -File" passes "a,b" as one string, so split on commas here.
 foreach ($b in ($Barcode -split ',')) { if ($b.Trim()) { $codes.Add($b.Trim()) } }
+# Titles to print on the label, by barcode (only from -CsvFile).
+$titles = @{}
+if ($CsvFile) {
+    foreach ($row in (Import-Csv -Path $CsvFile -Encoding UTF8)) {
+        $b = "$($row.barcode)".Trim()
+        if ($b) { $codes.Add($b); $titles[$b] = "$($row.title)" }
+    }
+}
 if ($Count -gt 0) {
     if ($Start -lt 0 -or ($Start + $Count - 1) -gt 99999999) { throw '-Start/-Count must give item numbers 0..99999999' }
     if ($Institution -notmatch '^\d{4}$') { throw '-Institution must be 4 digits' }
@@ -75,7 +90,17 @@ if ($Count -gt 0) {
         $codes.Add($payload + (Get-CheckDigit $payload))
     }
 }
-if ($codes.Count -eq 0) { throw 'Give -Barcode, or -Start and -Count' }
+if ($codes.Count -eq 0) { throw 'Give -Barcode, -CsvFile, or -Start and -Count' }
+
+# ZPL's default font is ASCII: fold accents (ê -> e), drop ZPL control characters ^ and ~.
+function Get-LabelText([string]$Text, [int]$Max) {
+    $d = $Text.Normalize([Text.NormalizationForm]::FormD)
+    $t = -join ($d.ToCharArray() | Where-Object {
+        [Globalization.CharUnicodeInfo]::GetUnicodeCategory($_) -ne 'NonSpacingMark' })
+    $t = ($t -replace '[^\x20-\x7E]', '' -replace '[\^~]', '' -replace '\s+', ' ').Trim()
+    if ($t.Length -gt $Max) { $t = $t.Substring(0, $Max - 1).TrimEnd() + '.' }
+    return $t
+}
 
 foreach ($c in $codes) {
     if ($c -notmatch '^\d{1,22}$') { throw "'$c': only numeric barcodes of 1-22 digits fit a 96-bit length-prefixed EPC" }
@@ -90,6 +115,8 @@ $labels = foreach ($c in $codes) {
     } else {
         $text = $c
     }
+    if ($titles.ContainsKey($c) -and $titles[$c]) { $line3 = Get-LabelText $titles[$c] 32 }
+    else { $line3 = 'RFID TEST' }
     [pscustomobject]@{
         Barcode = $c
         Epc     = $epc
@@ -100,7 +127,8 @@ $labels = foreach ($c in $codes) {
 ^FN1^RFR,H^FS^HV1,,EPC:^FS
 ^FO20,15^BY2,2.5,80^BKN,N,80,N,N,A,A^FD$c^FS
 ^FO20,105^A0N,28,28^FD$text^FS
-^FO20,145^A0N,20,20^FDRFID TEST  EPC $epc^FS
+^FO20,140^A0N,22,22^FD$line3^FS
+^FO20,170^A0N,18,18^FDEPC $epc^FS
 ^PQ1
 ^XZ
 "@

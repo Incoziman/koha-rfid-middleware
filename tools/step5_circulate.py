@@ -117,7 +117,13 @@ def main() -> int:
     location = a.location or a.institution
     pin = getpass.getpass("Patron PIN: ") if a.pin else ""
 
-    sip = sip2.Session(a.sip_host, a.sip_port, a.user, pw, a.institution)
+    try:
+        sip = sip2.Session(a.sip_host, a.sip_port, a.user, pw, a.institution)
+    except PermissionError as e:
+        raise SystemExit(str(e))
+    except OSError as e:
+        raise SystemExit(f"Can't reach Koha's SIP server at {a.sip_host}:{a.sip_port} ({e}). "
+                         "Nothing was sent.")
     print(f"SIP: logged in to {a.sip_host}:{a.sip_port} as {a.user}")
 
     patron = None
