@@ -87,6 +87,53 @@ The SIP test item from the setup notes is a `13-no-check-digit` item. It's store
 5. **The better long-term fix is cleaning the data in Koha:** strip separators, and add the missing check digit, or relabel. Then the fallback is rarely needed. Before changing anything, check a sample of physical labels against Koha, branch by branch, and resolve the 4,410 conflicting pairs first.
 6. **Alternative: do the repair inside Koha.** A Koha plugin using the `item_barcode_transform` hook could map a scanned barcode to the stored form, for every SIP client and the staff interface alike. More work, but it keeps the middleware simple. Don't set `itemBarcodeInputFilter` to `whitespace` as a shortcut: it would strip spaces from the *scanned* value, and the 25,333 items stored *with* spaces would then never match.
 
+## Printing test RFID labels (Zebra ZD500R)
+
+None of the current stock has RFID tags: every existing label is a printed Codabar barcode only. Test tags therefore come from the ZD500R, which prints the label and writes the tag in one job. [`tools/print_rfid_labels.ps1`](../tools/print_rfid_labels.ps1) builds the ZPL. **Untested on the printer so far.** Check the first few labels by hand.
+
+**A test set that covers the lookup paths:**
+
+| Tag barcode | Expected Koha result |
+|---|---|
+| A MIDDL `standard-14` item, copied exactly as stored | Found as-is |
+| `33228100096617` (the SIP test item) | Not found as-is. Fallback finds `3322810009661` |
+| `33228999900010` (new, from `-Start 99990001`) | Unknown: empty `AJ`. First check that nothing in Koha uses the `332289999…` range: `SELECT COUNT(*) FROM items WHERE REPLACE(REPLACE(barcode,' ',''),'-','') LIKE '332289999%'` should return 0 |
+
+**Each label gets:**
+- **EPC:** the barcode in the length-prefixed encoding from [`uhf-rfid.md`](uhf-rfid.md#tag-encoding-barcode--epc), e.g. `0E3322810009661700000000`.
+- **Printed:** a Codabar barcode (`^BK`, start/stop `A`) and the spaced number. Don't let the printer add a check digit, because the Luhn digit is already the 14th character.
+
+ZPL for one label, laid out for 203 dpi and a label at least 50 mm wide. On a 300 dpi printer, add `^MUD,200,300` after `^XA`.
+```zpl
+^XA
+^PW400^LL200^LH0,0
+^RFW,H^FD0E3322810009661700000000^FS
+^FN1^RFR,H^FS^HV1,,EPC:^FS
+^FO20,15^BY2,2.5,80^BKN,N,80,N,N,A,A^FD33228100096617^FS
+^FO20,105^A0N,28,28^FD3 3228 10009661 7^FS
+^FO20,145^A0N,20,20^FDRFID TEST  EPC 0E3322810009661700000000^FS
+^PQ1
+^XZ
+```
+`^RFW` writes the EPC. `^RFR` plus `^HV` read it back and send it to the host.
+
+**From PowerShell** (Windows blocks scripts by default, so use `-ExecutionPolicy Bypass`):
+```powershell
+# Once per roll of label stock: RFID tag-position calibration (feeds a few labels)
+$c = New-Object System.Net.Sockets.TcpClient('192.168.1.50', 9100); $s = $c.GetStream()
+$b = [Text.Encoding]::ASCII.GetBytes('^XA^HR^XZ'); $s.Write($b, 0, $b.Length); $c.Close()
+
+# Preview the ZPL only
+powershell -ExecutionPolicy Bypass -File tools\print_rfid_labels.ps1 -Barcode 33228100096617
+
+# Network printer: print, then compare each tag's read-back with what was written
+powershell -ExecutionPolicy Bypass -File tools\print_rfid_labels.ps1 -Barcode 33228100096617 -Start 99990001 -Count 3 -PrinterHost 192.168.1.50
+
+# USB printer shared in Windows as "ZD500R" (sends only, so there's no read-back)
+powershell -ExecutionPolicy Bypass -File tools\print_rfid_labels.ps1 -Barcode 33228100096617 -PrinterShare \\localhost\ZD500R
+```
+Then read the tags with the R220 (step 1 of [`steps.md`](../steps.md)). Each EPC should decode to its printed barcode, and a hand scanner reading the printed Codabar should give the same string.
+
 ## Koha settings involved
 
 From `systempreferences` in the 2026-09-14 dump:

@@ -36,7 +36,7 @@ South Africa allows UHF RFID in the **915–919 MHz** band (the band your step 1
 
 ## Tag encoding: barcode ↔ EPC
 
-The tag only needs to hold the item barcode; Koha holds everything else. The open question is *how* the barcode string is stored in EPC memory. That's step 2 of [`steps.md`](../steps.md) (decode EPC → barcode). Read a few tags that are already encoded before choosing; if any exist, follow whatever they use.
+The tag only needs to hold the item barcode; Koha holds everything else. The open question is *how* the barcode string is stored in EPC memory. That's step 2 of [`steps.md`](../steps.md) (decode EPC → barcode). None of the existing stock has RFID tags (checked 2026-11-13), so there's no encoding already in use that we'd have to follow.
 
 Encodings you may meet, all for barcode `33228100096617`:
 
@@ -66,6 +66,7 @@ One job that writes the EPC and prints a matching Codabar label. **Untested; che
 - `^RFW,H`: write to the tag, data given as hex. EPC memory is the default target.
 - `^BK`: Codabar barcode. `A`,`A` are the start/stop characters; most scanners don't transmit them.
 - Read the tag back afterwards (`^RFR,H`, or with the R220) and compare. Zebra printers can void the label when the write fails. Turn that on.
+- For a full label and a PowerShell script that prints test sets, see [Printing test RFID labels](barcode-format.md#printing-test-rfid-labels-zebra-zd500r).
 
 ## Security: checked out or not
 

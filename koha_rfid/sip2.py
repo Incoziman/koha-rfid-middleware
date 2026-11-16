@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import socket
 import time
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 # Length of the fixed-width part (after the 2-char command) of each reply
@@ -106,6 +107,43 @@ def checkin(institution: str, location: str, barcode: str) -> str:
 def item_found(fields: Dict[str, List[str]]) -> bool:
     """Koha answers an unknown barcode with an 18 reply whose title (AJ) is empty."""
     return bool(fields.get("AJ", [""])[0].strip())
+
+
+@dataclass(frozen=True)
+class ItemInfo:
+    """What Koha said about one item, from a 18 reply."""
+    tag_barcode: str        # the barcode as read from the tag
+    barcode: str            # the form Koha recognised: send this in 11 / 09
+    title: str
+    circulation_status: str  # 2-digit code, see CIRCULATION_STATUS
+    permanent_location: str  # AQ
+    current_location: str    # AP (may be empty)
+
+    @property
+    def repaired(self) -> bool:
+        return self.barcode != self.tag_barcode.strip()
+
+    @property
+    def status_text(self) -> str:
+        return CIRCULATION_STATUS.get(self.circulation_status, self.circulation_status)
+
+
+def lookup_item(client: "Client", institution: str, barcode: str) -> Optional[ItemInfo]:
+    """17 item information for the exact barcode, then its repaired forms.
+
+    Returns the first hit, or None if Koha knows none of them.
+    """
+    from .barcode import lookup_candidates  # local import: keep sip2 usable on its own
+    for cand in lookup_candidates(barcode):
+        _, fixed, f = parse(client.send(item_information(institution, cand)))
+        if item_found(f):
+            return ItemInfo(
+                tag_barcode=barcode, barcode=cand, title=f["AJ"][0].strip(),
+                circulation_status=fixed[:2],
+                permanent_location=f.get("AQ", [""])[0],
+                current_location=f.get("AP", [""])[0],
+            )
+    return None
 
 
 class Client:

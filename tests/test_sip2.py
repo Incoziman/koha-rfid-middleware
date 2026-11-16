@@ -51,5 +51,45 @@ class Builders(unittest.TestCase):
         self.assertTrue(sip2.checkin("MIDDL", "MIDDL", "BC").startswith("09N"))
 
 
+class FakeClient:
+    """Answers 17s from a dict {barcode: reply}; anything else gets the unknown-item reply."""
+    UNKNOWN = "1801010120261113    125444AB{}|AJ|"
+
+    def __init__(self, known):
+        self.known, self.asked = known, []
+
+    def send(self, msg):
+        bc = sip2.parse(msg)[2]["AB"][0]
+        self.asked.append(bc)
+        return self.known.get(bc, self.UNKNOWN.format(bc))
+
+
+class LookupItem(unittest.TestCase):
+    FOUND = ("1803020120261113    125444AB3322810009661|AJSonder gister se spoor |"
+             "CK001|AQMIDDL|BGMIDDL|")
+
+    def test_tag_with_check_digit_finds_item_stored_without(self):
+        # Step 4's real case: the tag holds 33228100096617, Koha has 3322810009661.
+        c = FakeClient({"3322810009661": self.FOUND})
+        item = sip2.lookup_item(c, "MIDDL", "33228100096617")
+        self.assertEqual(c.asked, ["33228100096617", "3322810009661"])   # exact first
+        self.assertEqual(item.barcode, "3322810009661")
+        self.assertTrue(item.repaired)
+        self.assertEqual(item.title, "Sonder gister se spoor")
+        self.assertEqual(item.status_text, "available")
+        self.assertEqual(item.permanent_location, "MIDDL")
+
+    def test_exact_hit_stops_there(self):
+        c = FakeClient({"33228100096617": self.FOUND})
+        item = sip2.lookup_item(c, "MIDDL", "33228100096617")
+        self.assertEqual(c.asked, ["33228100096617"])
+        self.assertFalse(item.repaired)
+
+    def test_unknown_everywhere(self):
+        c = FakeClient({})
+        self.assertIsNone(sip2.lookup_item(c, "MIDDL", "33228999900010"))
+        self.assertEqual(c.asked, ["33228999900010", "3322899990001"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -30,6 +30,9 @@ From [`steps.md`](steps.md). Each step is read-only until step 5:
 | [`docs/barcode-format.md`](docs/barcode-format.md) | The item barcode standard (14-digit Codabar, Luhn check digit), how well the real data follows it, and what that means for reading tags. Also covers patron card formats |
 | [`docs/sip2-koha.md`](docs/sip2-koha.md) | The SIP2 messages the middleware needs, with replies captured from the test server, Koha's quirks, and the self-check flow |
 | [`koha_rfid/barcode.py`](koha_rfid/barcode.py) | Check digit, format classification, and `lookup_candidates()` (exact barcode first, then repaired forms) |
+| [`koha_rfid/epc.py`](koha_rfid/epc.py) | EPC ↔ barcode in the length-prefixed encoding (step 2). Rejects tags that aren't library items |
+| [`koha_rfid/reader.py`](koha_rfid/reader.py) | Reader adapter: `R220Reader` (LLRP via `sllurp==2.0.1`) hands raw EPCs to a callback. The only hardware-specific code |
+| [`tools/step4_identify.py`](tools/step4_identify.py) | Step 4, read-only: reader → decode → SIP `17` → prints title and status for each tag in range |
 | [`koha_rfid/sip2.py`](koha_rfid/sip2.py) | SIP2 message builders, `AY`/`AZ` checksums, reply parser, a simple client |
 | [`tools/sip2_probe.py`](tools/sip2_probe.py) | Read-only SIP2 test: login, status, and item lookups with fallback. Runs on Windows or Linux |
 | [`tools/barcode_report.py`](tools/barcode_report.py) | Counts barcode formats in a Koha database. Prints only counts, never barcodes |
