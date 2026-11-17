@@ -8,9 +8,8 @@ Everything still runs against the **middelburg test instance**, so nothing reach
 
 - The rig: R220 (192.168.1.3) with both antennas, the ZD500R, and the PC with the Koha VM running.
 - 10–20 real books from MIDDL (see [Pick the books](#1-pick-the-books)).
-- The SIP password in `$env:SIP_PASSWORD`, and Python 3.12 with `sllurp==2.0.1`:
+- The SIP password in `.sip_password` in the repo root (one line; git-ignored, so it never reaches GitHub), and Python 3.12 with `sllurp==2.0.1`:
   ```powershell
-  $env:SIP_PASSWORD = "..."
   $py = "C:\Users\keanu\AppData\Local\Programs\Python\Python312\python.exe"
   ```
 - Two test patrons: card `64` (`sipterm1`) already exists. Create a second in the staff interface (category `L`, library MIDDL, card e.g. `RFIDTEST2`) for the hold test.
@@ -61,7 +60,8 @@ powershell -ExecutionPolicy Bypass -File tools\print_rfid_labels.ps1 -CsvFile te
 Each label carries the barcode exactly as Koha stores it, the title, and the EPC. Check the printer IP first: the old example in [`barcode-format.md`](barcode-format.md#printing-test-rfid-labels-zebra-zd500r) uses 192.168.1.50, which step 1 recorded as the PC's address.
 
 **Attaching:**
-- **Keep it removable.** Put the label on a card slipped inside the cover, or use low-tack tape. The tag encoding may change for the real rollout ([ISO 28560-4](uhf-rfid.md#tag-encoding-barcode--epc)), and the books belong to the live library.
+- **The tag doesn't have to go on the real book.** Koha only ever sees the barcode, so any stand-in works: an old notebook, a piece of cardboard, an empty box. Use one tag per object, keep metal away, and the title on the label tells you which "book" it is.
+- **On real books, keep it removable.** Put the label on a card slipped inside the cover, or use low-tack tape. The tag encoding may change for the real rollout ([ISO 28560-4](uhf-rfid.md#tag-encoding-barcode--epc)), and the books belong to the live library.
 - **Vary the position.** Put the tag inside the back cover, but at different heights or distances from the spine. Tags lying exactly on top of each other in a stack block each other. Test 5 in [Scenarios](#4-scenarios) checks how much this matters.
 - Don't cover the existing barcode label.
 

@@ -7,6 +7,7 @@ variable fields. docs/sip2-koha.md describes every message used here.
 
 from __future__ import annotations
 
+import os
 import socket
 import time
 from dataclasses import dataclass
@@ -315,3 +316,20 @@ class Session:
             except OSError:
                 pass
             self.client = None
+
+
+PASSWORD_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                             ".sip_password")
+
+
+def load_password() -> Optional[str]:
+    """SIP password: $SIP_PASSWORD if set, else the first line of .sip_password
+    in the repo root (git-ignored, so it never reaches GitHub)."""
+    pw = os.environ.get("SIP_PASSWORD")
+    if pw:
+        return pw
+    try:
+        with open(PASSWORD_FILE, encoding="utf-8") as fh:
+            return fh.readline().strip() or None
+    except OSError:
+        return None

@@ -3,7 +3,7 @@
 
 Never checks anything out or in, so it is safe to run against real data.
 
-    SIP_PASSWORD=... python3 tools/sip2_probe.py --host debian.mshome.net 33228100096617 3322810009661
+    python3 tools/sip2_probe.py --host debian.mshome.net 33228100096617 3322810009661
 
 For each barcode it tries the exact value first, then the repaired forms from
 koha_rfid.barcode.lookup_candidates, the same way the middleware should.
@@ -28,9 +28,9 @@ def main() -> int:
     ap.add_argument("--no-checksum", action="store_true", help="send without AY/AZ")
     ap.add_argument("-v", "--verbose", action="store_true", help="print raw messages")
     a = ap.parse_args()
-    pw = os.environ.get("SIP_PASSWORD")
+    pw = sip2.load_password()
     if not pw:
-        ap.error("set the SIP password in the SIP_PASSWORD environment variable")
+        ap.error("no SIP password: put it in .sip_password in the repo root, or set SIP_PASSWORD")
 
     c = sip2.Client(a.host, a.port, error_detection=not a.no_checksum)
 

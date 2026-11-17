@@ -53,7 +53,8 @@ python3 -m unittest -v
 
 Check SIP from the Windows host (PowerShell):
 ```powershell
-$env:SIP_PASSWORD = "<sip password>"
+# once: put the SIP password in .sip_password (git-ignored); $env:SIP_PASSWORD overrides it
+Set-Content .sip_password "<sip password>"
 python tools\sip2_probe.py --host debian.mshome.net 33228100096617
 ```
 

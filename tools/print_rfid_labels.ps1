@@ -98,6 +98,7 @@ function Get-LabelText([string]$Text, [int]$Max) {
     $t = -join ($d.ToCharArray() | Where-Object {
         [Globalization.CharUnicodeInfo]::GetUnicodeCategory($_) -ne 'NonSpacingMark' })
     $t = ($t -replace '[^\x20-\x7E]', '' -replace '[\^~]', '' -replace '\s+', ' ').Trim()
+    $t = $t.TrimEnd(' ', '/', ':', ';', ',', '=')   # catalogue punctuation: "Title /"
     if ($t.Length -gt $Max) { $t = $t.Substring(0, $Max - 1).TrimEnd() + '.' }
     return $t
 }

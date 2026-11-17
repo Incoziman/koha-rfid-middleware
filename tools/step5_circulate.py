@@ -5,7 +5,6 @@ WRITES TO KOHA. Use the middelburg TEST instance only. Only SIP 11 (check-out)
 and 09 (check-in) are sent, so Koha applies its normal circulation rules and
 records each one like a desk transaction. Nothing is renewed, edited or deleted.
 
-    $env:SIP_PASSWORD = "..."
     # tags on the R220 antenna:
     python tools\\step5_circulate.py checkout --card 64 --reader 192.168.1.3
     python tools\\step5_circulate.py checkin --reader 192.168.1.3
@@ -107,9 +106,9 @@ def main() -> int:
     ap.add_argument("--yes", action="store_true", help="don't ask for confirmation")
     a = ap.parse_args()
 
-    pw = os.environ.get("SIP_PASSWORD")
+    pw = sip2.load_password()
     if not pw:
-        ap.error("set the SIP password in the SIP_PASSWORD environment variable")
+        ap.error("no SIP password: put it in .sip_password in the repo root, or set SIP_PASSWORD")
     if a.action == "checkout" and not a.card:
         ap.error("checkout needs --card")
     if not a.reader and not a.barcode:

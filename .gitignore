@@ -7,3 +7,9 @@ __pycache__/
 
 # Local transaction logs (barcodes, masked cards)
 logs/
+
+# Field test working files (book lists, labels)
+fieldtest/
+
+# Local SIP password for the test instance (read by koha_rfid.sip2.load_password)
+.sip_password
