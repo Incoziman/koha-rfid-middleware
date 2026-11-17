@@ -108,6 +108,28 @@ class Plugin(unittest.TestCase):
         with open(ps1, encoding="utf-8") as fh:
             self.assertRegex(fh.read(), r"(?m)^\$BundledWheel = ''$")   # build_plugin.py fills this in
 
+    @unittest.skipUnless(shutil.which("powershell") or shutil.which("pwsh"), "PowerShell not installed")
+    def test_installer_functions_dont_leak_output(self):
+        # A PowerShell function returns everything it doesn't capture. An
+        # uncaptured "& winget ..." made Get-Python return winget's progress
+        # lines along with the python.exe path, and the install failed.
+        # Every "& command" inside a function must be assigned or piped.
+        ps1 = os.path.join(ROOT, "deploy", "install_agent.ps1")
+        check = (
+            "$ast = [System.Management.Automation.Language.Parser]::ParseFile("
+            f"'{ps1}', [ref]$null, [ref]$null); $bad = @();"
+            " foreach ($fn in $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)) {"
+            "  foreach ($c in $fn.Body.FindAll({ $args[0] -is [System.Management.Automation.Language.CommandAst] -and"
+            "      $args[0].InvocationOperator -eq 'Ampersand' }, $true)) {"
+            "   $ok = $c.Parent.PipelineElements.Count -gt 1; $p = $c.Parent;"
+            "   while (-not $ok -and $p -and $p -ne $fn) {"
+            "    if ($p -is [System.Management.Automation.Language.AssignmentStatementAst]) { $ok = $true }; $p = $p.Parent }"
+            "   if (-not $ok) { $bad += \"$($fn.Name) line $($c.Extent.StartLineNumber): $($c.Extent.Text)\" } } }"
+            " $bad; exit $bad.Count")
+        r = subprocess.run([shutil.which("powershell") or shutil.which("pwsh"), "-NoProfile", "-Command", check],
+                           capture_output=True, text=True, timeout=120)
+        self.assertEqual(r.returncode, 0, "uncaptured output in a function:\n" + r.stdout + r.stderr)
+
     @unittest.skipUnless(shutil.which("node"), "node not installed")
     def test_page_script(self):
         r = subprocess.run(["node", "--test", os.path.join(PLUGIN, "test", "rfid-desk.test.js")],

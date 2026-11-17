@@ -190,12 +190,17 @@ function Get-Python {
     $py = Find-Python
     if (-not $py -and (Get-Command winget -ErrorAction SilentlyContinue)) {
         Write-Host 'Python 3.12 not found: installing it for all users with winget ...'
+        # Out-Host: winget's output must not become part of this function's
+        # return value (PowerShell returns everything a function doesn't capture).
         & winget install -e --id Python.Python.3.12 --scope machine --silent `
-            --accept-package-agreements --accept-source-agreements
+            --accept-package-agreements --accept-source-agreements | Out-Host
         $py = Find-Python
     }
     if (-not $py) {
         throw 'Python 3.12 not found. Install it for all users (python.org, "Install for all users"), or pass -Python <path to python.exe>.'
+    }
+    if ($py -isnot [string] -or -not (Test-Path -LiteralPath $py -PathType Leaf)) {
+        throw "Python 3.12 not found at '$py'. Pass -Python <path to python.exe>."
     }
     if ($py -like '*WindowsApps*') {
         throw "$py is the Microsoft Store Python, which the SYSTEM account can't run. Install Python 3.12 from python.org and pass -Python."
