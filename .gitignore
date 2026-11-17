@@ -13,3 +13,7 @@ fieldtest/
 
 # Local SIP password for the test instance (read by koha_rfid.sip2.load_password)
 .sip_password
+
+# Desk agent local config
+agent.ini
+*.log
