@@ -1,8 +1,8 @@
 # Field test: RFID check-out and check-in with real books
 
-Step 6 of [`steps.md`](../steps.md). Steps 1–5 proved each part works: the reader, the EPC decoding, SIP lookups, and check-out/check-in. This test runs the whole thing with real library books, to see how it behaves in practice: read reliability, stray tags, stacks of books, and the cases Koha refuses.
+Step 6 of [`steps.md`](steps.md). Steps 1–5 proved each part works: the reader, the EPC decoding, SIP lookups, and check-out/check-in. This test runs the whole thing with real library books, to see how it behaves in practice: read reliability, stray tags, stacks of books, and the cases Koha refuses.
 
-Everything still runs against the **middelburg test instance**, so nothing reaches the live catalogue. Check-outs go to test patrons, and outgoing email stays disabled ([setup notes](../middelburg-koha-test-setup.md)).
+Everything still runs against the **middelburg test instance**, so nothing reaches the live catalogue. Check-outs go to test patrons, and outgoing email stays disabled ([setup notes](koha-test-setup.md)).
 
 ## What you need
 
@@ -45,27 +45,27 @@ Find the books on the shelf, and delete the rows for any you can't find.
 
 **Check them against Koha** (read-only):
 ```powershell
-& $py tools\check_test_books.py --file scanned.txt --out test_books.csv
+& $py testing\check_test_books.py --file scanned.txt --out test_books.csv
 ```
-It skips books that the test copy doesn't have (it's from 2026-09-14), that Koha shows as on loan, or that have barcodes the numeric tag encoding can't hold. If a book you're holding shows as on loan, it was probably returned after the copy was made. Either leave it out, or check it in first with `tools\step5_circulate.py checkin --barcode ...`.
+It skips books that the test copy doesn't have (it's from 2026-09-14), that Koha shows as on loan, or that have barcodes the numeric tag encoding can't hold. If a book you're holding shows as on loan, it was probably returned after the copy was made. Either leave it out, or check it in first with `testing\step5_circulate.py checkin --barcode ...`.
 
 ## 2. Print and attach the tags
 
 ```powershell
 # preview first
-powershell -ExecutionPolicy Bypass -File tools\print_rfid_labels.ps1 -CsvFile test_books.csv
+powershell -ExecutionPolicy Bypass -File testing\print_rfid_labels.ps1 -CsvFile test_books.csv
 # print; every row of the read-back table should say OK
-powershell -ExecutionPolicy Bypass -File tools\print_rfid_labels.ps1 -CsvFile test_books.csv -PrinterHost <printer IP>
+powershell -ExecutionPolicy Bypass -File testing\print_rfid_labels.ps1 -CsvFile test_books.csv -PrinterHost <printer IP>
 ```
-Each label carries the barcode exactly as Koha stores it, the title, and the EPC. Check the printer IP first: the old example in [`barcode-format.md`](barcode-format.md#printing-test-rfid-labels-zebra-zd500r) uses 192.168.1.50, which step 1 recorded as the PC's address.
+Each label carries the barcode exactly as Koha stores it, the title, and the EPC. Check the printer IP first: the old example in [`barcode-format.md`](../reference/barcode-format.md#printing-test-rfid-labels-zebra-zd500r) uses 192.168.1.50, which step 1 recorded as the PC's address.
 
 **Attaching:**
 - **The tag doesn't have to go on the real book.** Koha only ever sees the barcode, so any stand-in works: an old notebook, a piece of cardboard, an empty box. Use one tag per object, keep metal away, and the title on the label tells you which "book" it is.
-- **On real books, keep it removable.** Put the label on a card slipped inside the cover, or use low-tack tape. The tag encoding may change for the real rollout ([ISO 28560-4](uhf-rfid.md#tag-encoding-barcode--epc)), and the books belong to the live library.
+- **On real books, keep it removable.** Put the label on a card slipped inside the cover, or use low-tack tape. The tag encoding may change for the real rollout ([ISO 28560-4](../reference/uhf-rfid.md#tag-encoding-barcode--epc)), and the books belong to the live library.
 - **Vary the position.** Put the tag inside the back cover, but at different heights or distances from the spine. Tags lying exactly on top of each other in a stack block each other. Test 5 in [Scenarios](#4-scenarios) checks how much this matters.
 - Don't cover the existing barcode label.
 
-**Check:** `& $py tools\step4_identify.py 192.168.1.3 --seconds 10 --antennas 1 2`, with all the tagged books near antenna 1. Every book should show `OK` with its title.
+**Check:** `& $py testing\step4_identify.py 192.168.1.3 --seconds 10 --antennas 1 2`, with all the tagged books near antenna 1. Every book should show `OK` with its title.
 
 ## 3. Tune the pad
 
@@ -74,10 +74,10 @@ Antenna 1 is the self-check pad. At full power it reads tags metres away. That's
 The `--power` value is an index into the reader's power table: `0` = maximum (32.5 dBm), otherwise dBm = 10 + (index − 1) × 0.25. So `21` = 15 dBm, `41` = 20 dBm, `61` = 25 dBm.
 
 1. Put 3 books flat on antenna 1. Put 3 others about 1 m away, as if on a trolley or in someone's arms.
-2. For each power level, run `& $py tools\step4_identify.py 192.168.1.3 --seconds 10 --antennas 1 --session 0 --power <index>` three times. Use indexes 0, 61, 41, 31 and 21.
+2. For each power level, run `& $py testing\step4_identify.py 192.168.1.3 --seconds 10 --antennas 1 --session 0 --power <index>` three times. Use indexes 0, 61, 41, 31 and 21.
 3. **Pick the lowest power at which the pad books are read every time.** Then check that the far books are never read at that level. Write down the index and use it as `--power` from here on.
 
-If no level works, the antenna is too far-field for a pad. Note it: the real self-check point will need a near-field antenna or a shielded box ([uhf-rfid.md](uhf-rfid.md#how-uhf-differs-from-hf-for-a-library)).
+If no level works, the antenna is too far-field for a pad. Note it: the real self-check point will need a near-field antenna or a shielded box ([uhf-rfid.md](../reference/uhf-rfid.md#how-uhf-differs-from-hf-for-a-library)).
 
 ## 4. Scenarios
 

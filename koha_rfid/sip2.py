@@ -2,7 +2,7 @@
 
 Only what the RFID middleware needs: building messages with sequence numbers
 and checksums (AY/AZ), and splitting replies into their fixed part and
-variable fields. docs/sip2-koha.md describes every message used here.
+variable fields. docs/selfcheck/sip2-koha.md describes every message used here.
 """
 
 from __future__ import annotations
@@ -264,7 +264,7 @@ class Session:
     check-out to the same patron would be a renewal.
     """
 
-    KEEPALIVE_S = 240   # docs/sip2-koha.md: repeat 99 every ~5 min
+    KEEPALIVE_S = 240   # docs/selfcheck/sip2-koha.md: repeat 99 every ~5 min
 
     def __init__(self, host: str, port: int, user: str, password: str, location: str,
                  timeout: float = 10.0):

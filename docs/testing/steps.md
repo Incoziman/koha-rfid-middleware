@@ -9,4 +9,4 @@ Step 4 — join them. Reader → decode → SIP item info → print title. Read-
 
 Step 5 — checkout. Only now add the 11 message, against your middelburg test instance.
 
-Step 6 — field test with real books. Tag 10–20 real MIDDL books (checked against Koha with tools/check_test_books.py, printed with print_rfid_labels.ps1 -CsvFile), tune the pad power, then run the scenario list in docs/field-test.md: stacks, orientation, holds, blocked patrons, stray tags, Koha down, exit gate. Still against the test instance.
+Step 6 — field test with real books. Tag 10–20 real MIDDL books (checked against Koha with testing/check_test_books.py, printed with print_rfid_labels.ps1 -CsvFile), tune the pad power, then run the scenario list in docs/field-test.md: stacks, orientation, holds, blocked patrons, stray tags, Koha down, exit gate. Still against the test instance.

@@ -5,7 +5,7 @@ Reads tags from the R220. Each new EPC is decoded to a barcode, and Koha is
 asked about it with a SIP 17. Tags that aren't library items are skipped. Never sends
 11 or 09, so it can't change circulation data.
 
-    python tools\\step4_identify.py 192.168.1.3 --seconds 30
+    python testing\\step4_identify.py 192.168.1.3 --seconds 30
 
 Needs sllurp==2.0.1 (pip install sllurp==2.0.1). Each tag is looked up once
 per run. Ctrl+C stops early and still prints the summary.

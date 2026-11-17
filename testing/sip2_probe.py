@@ -3,7 +3,7 @@
 
 Never checks anything out or in, so it is safe to run against real data.
 
-    python3 tools/sip2_probe.py --host debian.mshome.net 33228100096617 3322810009661
+    python3 testing/sip2_probe.py --host debian.mshome.net 33228100096617 3322810009661
 
 For each barcode it tries the exact value first, then the repaired forms from
 koha_rfid.barcode.lookup_candidates, the same way the middleware should.

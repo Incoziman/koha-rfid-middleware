@@ -10,7 +10,7 @@ The standard format is the 14-digit Codabar library barcode:
 
 About 75% of items match it exactly. Many others are the same number stored
 in a damaged form: separators typed in, or the check digit dropped.
-docs/barcode-format.md has the numbers.
+docs/reference/barcode-format.md has the numbers.
 
 The rule for the middleware: send Koha the exact string first. Only if Koha
 says the item is unknown, try the repaired forms from `lookup_candidates`.

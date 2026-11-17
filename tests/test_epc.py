@@ -4,7 +4,7 @@ from koha_rfid.barcode import KIND_STANDARD, classify, make_barcode
 from koha_rfid.epc import NotLibraryTag, decode_epc, encode_epc, try_decode_epc
 
 # EPCs read from the R220 in step 1 (2026-11-16), with the barcodes their
-# labels were printed with (tools/print_rfid_labels.ps1).
+# labels were printed with (testing/print_rfid_labels.ps1).
 KNOWN_PAIRS = {
     "0E3322810009661700000000": "33228100096617",
     "0E3322899990001000000000": "33228999900010",

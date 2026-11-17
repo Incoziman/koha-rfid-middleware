@@ -6,10 +6,10 @@ and 09 (check-in) are sent, so Koha applies its normal circulation rules and
 records each one like a desk transaction. Nothing is renewed, edited or deleted.
 
     # tags on the R220 antenna:
-    python tools\\step5_circulate.py checkout --card 64 --reader 192.168.1.3
-    python tools\\step5_circulate.py checkin --reader 192.168.1.3
+    python testing\\step5_circulate.py checkout --card 64 --reader 192.168.1.3
+    python testing\\step5_circulate.py checkin --reader 192.168.1.3
     # or typed barcodes, no reader needed:
-    python tools\\step5_circulate.py checkout --card 64 --barcode 3322810009661
+    python testing\\step5_circulate.py checkout --card 64 --barcode 3322810009661
 
 How it works:
   1. check-out only: patron status (23); stop if the card is invalid or blocked

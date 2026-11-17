@@ -1,6 +1,6 @@
 """Reader adapters. Each one hands raw EPC hex strings to a callback.
 
-This is the only module that knows about the reader hardware (docs/uhf-rfid.md,
+This is the only module that knows about the reader hardware (docs/reference/uhf-rfid.md,
 "Side note: cheaper hardware"). A desktop USB reader would get its own class
 here with the same start()/stop() shape; nothing downstream changes.
 

@@ -10,10 +10,10 @@ Give it item barcodes from any of these:
 
 Each barcode is looked up with SIP 17 (exact, then repaired forms, as the
 middleware does). Books that can go on a test tag are written to --out, a CSV
-that tools/print_rfid_labels.ps1 -CsvFile prints from. The tag gets the barcode
+that testing/print_rfid_labels.ps1 -CsvFile prints from. The tag gets the barcode
 exactly as Koha stores it, so the first lookup at check-out is an exact hit.
 
-    python tools\\check_test_books.py --file report.csv --out test_books.csv
+    python testing\\check_test_books.py --file report.csv --out test_books.csv
 """
 import argparse
 import csv
@@ -125,7 +125,7 @@ def main() -> int:
         w.writeheader()
         w.writerows(keep)
     print(f"\n{len(keep)} book(s) written to {os.path.abspath(a.out)}")
-    print(f"Next: powershell -ExecutionPolicy Bypass -File tools\\print_rfid_labels.ps1 "
+    print(f"Next: powershell -ExecutionPolicy Bypass -File testing\\print_rfid_labels.ps1 "
           f"-CsvFile {a.out} -PrinterHost <printer IP>")
     return 0
 
