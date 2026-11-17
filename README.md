@@ -23,9 +23,9 @@ desk agent ──LLRP──► R220 pad      ──9100──► ZD500R         
 | Path | What it is |
 |---|---|
 | [`docs/desk/desk-setup.md`](docs/desk/desk-setup.md) | **Start here:** Koha server setup, desk PC install, how librarians use it, troubleshooting |
-| [`koha-plugin/`](koha-plugin/) | The Koha plugin (Perl + JS). Build the `.kpz` with `python deploy/build_plugin.py` |
+| [`koha-plugin/`](koha-plugin/) | The Koha plugin (Perl + JS). Build the `.kpz` with `python deploy/build_plugin.py`. The `.kpz` also carries the desk agent and its installer: desk PCs get them from Koha, not from this repo |
 | [`koha_rfid/agent/`](koha_rfid/agent/) | The desk agent: owns the reader and printer, serves them on 127.0.0.1 to the plugin |
-| [`deploy/install_agent.ps1`](deploy/install_agent.ps1) | Installs the agent on a desk PC as a boot-time Scheduled Task. Also `-Status`, `-Restart`, `-Pause`, `-Resume`, `-Uninstall` |
+| [`deploy/install_agent.ps1`](deploy/install_agent.ps1) | Installs the agent on a desk PC as a boot-time Scheduled Task, from Koha (the command on the plugin's Configure page) or from this repo. It keeps a copy as `C:\koha-rfid\install_agent.ps1` for `-Status`, `-Restart`, `-Update`, `-Pause`, `-Resume`, `-Uninstall` |
 | [`deploy/agent.example.ini`](deploy/agent.example.ini) | Agent settings: reader, pad power, printer, allowed Koha address |
 
 ## Self-check: SIP2 (semi-separate)
@@ -57,7 +57,7 @@ desk agent ──LLRP──► R220 pad      ──9100──► ZD500R         
 | [`docs/testing/koha-test-setup.md`](docs/testing/koha-test-setup.md) | How the Koha test instance was set up (passwords redacted) |
 | [`testing/`](testing/) | Step scripts: `step1_read_tags.py`, `step4_identify.py` (read-only), `step5_circulate.py` (**writes to Koha**), `sip2_probe.py`, `check_test_books.py`, `barcode_report.py`, `print_rfid_labels.ps1`. Step 1 results are in `testing/results/` |
 
-The testing scripts and the desk agent both use the R220, which allows only one connection. Pause the agent first: `deploy\install_agent.ps1 -Pause`.
+The testing scripts and the desk agent both use the R220, which allows only one connection. Pause the agent first: `C:\koha-rfid\install_agent.ps1 -Pause`.
 
 ## Quick start (development)
 

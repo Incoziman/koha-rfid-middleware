@@ -81,4 +81,4 @@ idle screen ──card scanned──► 23 patron status ──refused──► 
 & $py testing\step5_circulate.py checkout --card 64 --reader 192.168.1.3
 & $py testing\step5_circulate.py checkin --reader 192.168.1.3
 ```
-The R220 allows only one connection. If the desk agent runs on the same PC, pause it first: `deploy\install_agent.ps1 -Pause`.
+The R220 allows only one connection. If the desk agent runs on the same PC, pause it first: `C:\koha-rfid\install_agent.ps1 -Pause`.
