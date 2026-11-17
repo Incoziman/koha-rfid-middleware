@@ -17,3 +17,8 @@ fieldtest/
 # Desk agent local config
 agent.ini
 *.log
+
+# Packaging build output
+build/
+dist/
+*.egg-info/
