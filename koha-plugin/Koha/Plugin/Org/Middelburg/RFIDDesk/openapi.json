@@ -1,0 +1,57 @@
+{
+  "/items": {
+    "get": {
+      "x-mojo-to": "Org::Middelburg::RFIDDesk::Controller#items",
+      "operationId": "rfiddeskItemsByBarcode",
+      "tags": ["rfiddesk"],
+      "description": "Look up items by barcode (read-only). Used by the RFID pad panel.",
+      "parameters": [
+        {
+          "name": "barcode",
+          "in": "query",
+          "description": "Item barcode; repeat for several",
+          "required": true,
+          "type": "array",
+          "items": { "type": "string" },
+          "collectionFormat": "multi"
+        }
+      ],
+      "produces": ["application/json"],
+      "responses": {
+        "200": { "description": "One entry per requested barcode", "schema": { "type": "object" } },
+        "400": { "description": "Bad request", "schema": { "type": "object" } },
+        "401": { "description": "Not logged in", "schema": { "type": "object" } },
+        "403": { "description": "Not allowed", "schema": { "type": "object" } }
+      },
+      "x-koha-authorization": {
+        "permissions": { "circulate": "circulate_remaining_permissions" }
+      }
+    }
+  },
+  "/biblios/{biblionumber}/items": {
+    "get": {
+      "x-mojo-to": "Org::Middelburg::RFIDDesk::Controller#biblio_items",
+      "operationId": "rfiddeskBiblioItems",
+      "tags": ["rfiddesk"],
+      "description": "Items of a bibliographic record, for RFID label printing (read-only).",
+      "parameters": [
+        {
+          "name": "biblionumber",
+          "in": "path",
+          "required": true,
+          "type": "integer"
+        }
+      ],
+      "produces": ["application/json"],
+      "responses": {
+        "200": { "description": "The record's items", "schema": { "type": "object" } },
+        "401": { "description": "Not logged in", "schema": { "type": "object" } },
+        "403": { "description": "Not allowed", "schema": { "type": "object" } },
+        "404": { "description": "No such record", "schema": { "type": "object" } }
+      },
+      "x-koha-authorization": {
+        "permissions": { "editcatalogue": "edit_items" }
+      }
+    }
+  }
+}

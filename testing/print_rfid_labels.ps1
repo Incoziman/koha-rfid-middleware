@@ -4,35 +4,35 @@ Print item barcode labels on a Zebra ZD500R and write the same barcode to each l
 
 .DESCRIPTION
 For each barcode, one ZPL label that:
-  - writes the EPC in the length-prefixed encoding from docs/uhf-rfid.md
+  - writes the EPC in the length-prefixed encoding from docs/reference/uhf-rfid.md
     (first byte = number of digits, then the digits, zero-padded to 96 bits),
   - reads the tag back and returns it to the host (only seen with -PrinterHost),
   - prints a Codabar barcode and the spaced human-readable number.
 
 Barcodes come from -Barcode (sent exactly as given), from -CsvFile (the output
-of tools/check_test_books.py: real Koha books, with their titles printed on the
+of testing/check_test_books.py: real Koha books, with their titles printed on the
 label), or are generated in the standard format with -Start/-Count
 (3 + institution + 8-digit item + Luhn check).
-See docs/barcode-format.md, "Printing test RFID labels".
+See docs/reference/barcode-format.md, "Printing test RFID labels".
 
 Layout is for a 203 dpi printer and a label at least 50 mm wide.
 UNTESTED on the hardware: check the first labels by hand.
 
 .EXAMPLE
 # Look at the ZPL without printing
-powershell -ExecutionPolicy Bypass -File tools\print_rfid_labels.ps1 -Barcode 33228100096617
+powershell -ExecutionPolicy Bypass -File testing\print_rfid_labels.ps1 -Barcode 33228100096617
 
 .EXAMPLE
 # Printer on the network (raw port 9100): print, then check the read-back
-powershell -ExecutionPolicy Bypass -File tools\print_rfid_labels.ps1 -Start 99990001 -Count 3 -PrinterHost 192.168.1.50
+powershell -ExecutionPolicy Bypass -File testing\print_rfid_labels.ps1 -Start 99990001 -Count 3 -PrinterHost 192.168.1.50
 
 .EXAMPLE
-# Real books checked against Koha by tools/check_test_books.py
-powershell -ExecutionPolicy Bypass -File tools\print_rfid_labels.ps1 -CsvFile test_books.csv -PrinterHost 192.168.1.50
+# Real books checked against Koha by testing/check_test_books.py
+powershell -ExecutionPolicy Bypass -File testing\print_rfid_labels.ps1 -CsvFile test_books.csv -PrinterHost 192.168.1.50
 
 .EXAMPLE
 # Printer on USB, shared in Windows as "ZD500R" (no read-back over this path)
-powershell -ExecutionPolicy Bypass -File tools\print_rfid_labels.ps1 -Barcode 33228100096617 -PrinterShare \\localhost\ZD500R
+powershell -ExecutionPolicy Bypass -File testing\print_rfid_labels.ps1 -Barcode 33228100096617 -PrinterShare \\localhost\ZD500R
 #>
 [CmdletBinding()]
 param(
@@ -98,6 +98,7 @@ function Get-LabelText([string]$Text, [int]$Max) {
     $t = -join ($d.ToCharArray() | Where-Object {
         [Globalization.CharUnicodeInfo]::GetUnicodeCategory($_) -ne 'NonSpacingMark' })
     $t = ($t -replace '[^\x20-\x7E]', '' -replace '[\^~]', '' -replace '\s+', ' ').Trim()
+    $t = $t.TrimEnd(' ', '/', ':', ';', ',', '=')   # catalogue punctuation: "Title /"
     if ($t.Length -gt $Max) { $t = $t.Substring(0, $Max - 1).TrimEnd() + '.' }
     return $t
 }

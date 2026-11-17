@@ -2,7 +2,7 @@
 
 This project uses **UHF** RFID (EPC Gen2 / ISO 18000-63). Most library RFID worldwide is HF (13.56 MHz, ISO 15693), and some of the standard library advice doesn't apply to UHF. This doc covers what's different, how to put barcodes on tags, and what changes with cheaper hardware.
 
-> **Nothing here has been tested on the hardware yet.** The reader and printer details come from vendor documentation and general UHF practice. Check them against the actual devices during steps 1–2 of [`steps.md`](../steps.md), and update this doc with what you find.
+> **Nothing here has been tested on the hardware yet.** The reader and printer details come from vendor documentation and general UHF practice. Check them against the actual devices during steps 1–2 of [`steps.md`](../testing/steps.md), and update this doc with what you find.
 
 ## Test hardware
 
@@ -36,7 +36,7 @@ South Africa allows UHF RFID in the **915–919 MHz** band (the band your step 1
 
 ## Tag encoding: barcode ↔ EPC
 
-The tag only needs to hold the item barcode; Koha holds everything else. The open question is *how* the barcode string is stored in EPC memory. That's step 2 of [`steps.md`](../steps.md) (decode EPC → barcode). None of the existing stock has RFID tags (checked 2026-11-13), so there's no encoding already in use that we'd have to follow.
+The tag only needs to hold the item barcode; Koha holds everything else. The open question is *how* the barcode string is stored in EPC memory. That's step 2 of [`steps.md`](../testing/steps.md) (decode EPC → barcode). None of the existing stock has RFID tags (checked 2026-11-13), so there's no encoding already in use that we'd have to follow.
 
 Encodings you may meet, all for barcode `33228100096617`:
 

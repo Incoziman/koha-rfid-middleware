@@ -2,11 +2,12 @@
 
 Only what the RFID middleware needs: building messages with sequence numbers
 and checksums (AY/AZ), and splitting replies into their fixed part and
-variable fields. docs/sip2-koha.md describes every message used here.
+variable fields. docs/selfcheck/sip2-koha.md describes every message used here.
 """
 
 from __future__ import annotations
 
+import os
 import socket
 import time
 from dataclasses import dataclass
@@ -263,7 +264,7 @@ class Session:
     check-out to the same patron would be a renewal.
     """
 
-    KEEPALIVE_S = 240   # docs/sip2-koha.md: repeat 99 every ~5 min
+    KEEPALIVE_S = 240   # docs/selfcheck/sip2-koha.md: repeat 99 every ~5 min
 
     def __init__(self, host: str, port: int, user: str, password: str, location: str,
                  timeout: float = 10.0):
@@ -315,3 +316,20 @@ class Session:
             except OSError:
                 pass
             self.client = None
+
+
+PASSWORD_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                             ".sip_password")
+
+
+def load_password() -> Optional[str]:
+    """SIP password: $SIP_PASSWORD if set, else the first line of .sip_password
+    in the repo root (git-ignored, so it never reaches GitHub)."""
+    pw = os.environ.get("SIP_PASSWORD")
+    if pw:
+        return pw
+    try:
+        with open(PASSWORD_FILE, encoding="utf-8") as fh:
+            return fh.readline().strip() or None
+    except OSError:
+        return None

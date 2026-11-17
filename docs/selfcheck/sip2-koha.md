@@ -2,7 +2,7 @@
 
 Reference for building the self-check / RFID middleware against Koha 21.11's SIP server. Messages marked **tested** were run against the `middelburg` test instance on 2026-11-13. The rest follow the 3M SIP2 specification and still need testing (they change data, so test them on the test instance only).
 
-Working code: [`koha_rfid/sip2.py`](../koha_rfid/sip2.py). Read-only test tool: [`tools/sip2_probe.py`](../tools/sip2_probe.py).
+Working code: [`koha_rfid/sip2.py`](../../koha_rfid/sip2.py). Read-only test tool: [`testing/sip2_probe.py`](../../testing/sip2_probe.py).
 
 ## Connection
 
@@ -72,7 +72,7 @@ Security marker: `00` other, `01` none, `02` tattle-tape, `03` whisper tape. Koh
 ```
 << 1801010120261113    125444AB00000000000000|AJ|
 ```
-`item_found()` in `sip2.py` checks for that. It's the trigger for trying the repaired barcode forms from [`barcode-format.md`](barcode-format.md).
+`item_found()` in `sip2.py` checks for that. It's the trigger for trying the repaired barcode forms from [`barcode-format.md`](../reference/barcode-format.md).
 
 ### 23 → 24 Patron status (tested with an unknown card)
 ```
@@ -97,14 +97,14 @@ Like `23`, but also returns counts and optional lists of loans and holds, plus c
 Fixed part: renewal policy (`N`), no-block (`N`), transaction date, no-block due date (18 spaces).
 Reply `12`: ok (`1`/`0`), renewal ok, magnetic media (`Y`/`N`/`U`), **desensitize** (`Y`/`N`/`U`), date, then `AB`, `AJ`, **`AH` due date**, and `AF` message.
 
-- **Act on the security bit only when the reply has ok = `1` and desensitize = `Y`.** What "act" means depends on the security design. With UHF and a gate that asks the system, there's nothing to write. If the tag carries a flag, write "checked out" and confirm the check-out only once the write succeeds. See [`uhf-rfid.md`](uhf-rfid.md#security-checked-out-or-not).
+- **Act on the security bit only when the reply has ok = `1` and desensitize = `Y`.** What "act" means depends on the security design. With UHF and a gate that asks the system, there's nothing to write. If the tag carries a flag, write "checked out" and confirm the check-out only once the write succeeds. See [`uhf-rfid.md`](../reference/uhf-rfid.md#security-checked-out-or-not).
 Captured (card `64` = test patron `sipterm1`):
 ```
 << 121NNY20261116    123631AOMIDDL|AA64|AB3322810009661|AJSonder gister se spoor |AH20261123    235900|CK001|AY5AZE2E5
 ```
 - `AH` (due date) comes in the SIP date format `YYYYMMDDZZZZHHMMSS`, not ISO.
 - With `IndependentBranches` on, Koha refuses with `120NUN…AFIssue failed : ITEMNOTSAMEBRANCH` when the item's branch isn't the SIP session's branch. The live system has it **off**; the test instance was switched off to match (2026-11-16).
-- Checking out an item already on loan to the same patron is a **renewal** in Koha. `tools/step5_circulate.py` skips items on loan for that reason.
+- Checking out an item already on loan to the same patron is a **renewal** in Koha. `testing/step5_circulate.py` skips items on loan for that reason.
 - `AllowItemsOnHoldCheckoutSIP` is `0`, so an item on hold for someone else is refused (`120`…).
 
 ### 09 → 10 Check-in (tested 2026-11-16)
@@ -146,6 +146,6 @@ Always send `11` / `09` with the barcode **as Koha recognised it** in the `17` s
 
 ## Still to find out
 
-- **How the barcode is encoded in the EPC** (step 2 of [`steps.md`](../steps.md)), and whether it includes the check digit. Options and a proposal are in [`uhf-rfid.md`](uhf-rfid.md#tag-encoding-barcode--epc).
-- **Security design:** a gate that asks the system, or a flag written to the tag. See [`uhf-rfid.md`](uhf-rfid.md#security-checked-out-or-not).
+- **How the barcode is encoded in the EPC** (step 2 of [`steps.md`](../testing/steps.md)), and whether it includes the check digit. Options and a proposal are in [`uhf-rfid.md`](../reference/uhf-rfid.md#tag-encoding-barcode--epc).
+- **Security design:** a gate that asks the system, or a flag written to the tag. See [`uhf-rfid.md`](../reference/uhf-rfid.md#security-checked-out-or-not).
 - Whether to use `pysip2` (step 3) or `koha_rfid/sip2.py`. Either way, check that it sends `AY`/`AZ` and handles the empty-title "unknown item" reply.

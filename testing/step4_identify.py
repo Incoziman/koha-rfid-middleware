@@ -5,8 +5,7 @@ Reads tags from the R220. Each new EPC is decoded to a barcode, and Koha is
 asked about it with a SIP 17. Tags that aren't library items are skipped. Never sends
 11 or 09, so it can't change circulation data.
 
-    $env:SIP_PASSWORD = "..."
-    python tools\\step4_identify.py 192.168.1.3 --seconds 30
+    python testing\\step4_identify.py 192.168.1.3 --seconds 30
 
 Needs sllurp==2.0.1 (pip install sllurp==2.0.1). Each tag is looked up once
 per run. Ctrl+C stops early and still prints the summary.
@@ -37,9 +36,9 @@ def main() -> int:
     ap.add_argument("--show-foreign", action="store_true",
                     help="also list tags that aren't library items")
     a = ap.parse_args()
-    pw = os.environ.get("SIP_PASSWORD")
+    pw = sip2.load_password()
     if not pw:
-        ap.error("set the SIP password in the SIP_PASSWORD environment variable")
+        ap.error("no SIP password: put it in .sip_password in the repo root, or set SIP_PASSWORD")
 
     # SIP first: no point reading tags if Koha isn't there.
     try:

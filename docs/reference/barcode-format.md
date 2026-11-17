@@ -1,6 +1,6 @@
 # Item barcode format
 
-Analysis of the 644,503 item barcodes in the Mpumalanga consortium Koha dump of 2026-09-14 (the data loaded into the `middelburg` test instance). Reproduce it with [`tools/barcode_report.py`](../tools/barcode_report.py).
+Analysis of the 644,503 item barcodes in the Mpumalanga consortium Koha dump of 2026-09-14 (the data loaded into the `middelburg` test instance). Reproduce it with [`testing/barcode_report.py`](../../testing/barcode_report.py).
 
 ## Summary
 
@@ -46,7 +46,7 @@ Worked example, payload `3322810009661`:
 | Digit | 3 | 3 | 2 | 2 | 8 | 1 | 0 | 0 | 0 | 9 | 6 | 6 | 1 |
 | Value | 6 | 3 | 4 | 2 | 7 | 1 | 0 | 0 | 0 | 9 | 3 | 6 | 2 |
 
-Total 43, so the check digit is `(10 − 3) mod 10 = 7`, and the full barcode is `33228100096617`. In code: [`koha_rfid.barcode.check_digit`](../koha_rfid/barcode.py).
+Total 43, so the check digit is `(10 − 3) mod 10 = 7`, and the full barcode is `33228100096617`. In code: [`koha_rfid.barcode.check_digit`](../../koha_rfid/barcode.py).
 
 The check digit catches every single-digit error, which makes it a useful sanity check on what an RFID reader returns.
 
@@ -77,19 +77,19 @@ The SIP test item from the setup notes is a `13-no-check-digit` item. It's store
 
 1. **The tag holds a string, and Koha matches it exactly.** Koha's SIP server (`C4::SIP::ILS::Item`) passes the barcode through `barcodedecode()` and then looks up `items.barcode` with an exact match. `barcodedecode()` runs any `item_barcode_transform` Koha plugin, then `itemBarcodeInputFilter`. Here no plugin is installed and the filter is empty, so the barcode isn't changed at all.
 2. **When programming new tags,** write the barcode exactly as Koha stores it, or first correct the barcode in Koha (see 5).
-3. **When reading tags**, use [`lookup_candidates()`](../koha_rfid/barcode.py):
+3. **When reading tags**, use [`lookup_candidates()`](../../koha_rfid/barcode.py):
    1. Send the exact value (trimmed of CR/LF and outer spaces).
    2. If Koha says it's unknown (empty `AJ` title in the `18` reply), try the repaired forms one at a time and stop at the first hit.
    3. Log every hit on a repaired form, so those items can be fixed in Koha.
 
-   Tested on 2026-11-13: a tag holding `33228100096617` isn't found as-is, and the fallback finds the item as `3322810009661`. See [`tools/sip2_probe.py`](../tools/sip2_probe.py).
+   Tested on 2026-11-13: a tag holding `33228100096617` isn't found as-is, and the fallback finds the item as `3322810009661`. See [`testing/sip2_probe.py`](../../testing/sip2_probe.py).
 4. **Don't use the check digit to reject reads.** A quarter of the stock has no valid check digit. Use it only to flag a probable misread (a `standard-14` that fails can't come from a correct read of a `3228` tag).
 5. **The better long-term fix is cleaning the data in Koha:** strip separators, and add the missing check digit, or relabel. Then the fallback is rarely needed. Before changing anything, check a sample of physical labels against Koha, branch by branch, and resolve the 4,410 conflicting pairs first.
 6. **Alternative: do the repair inside Koha.** A Koha plugin using the `item_barcode_transform` hook could map a scanned barcode to the stored form, for every SIP client and the staff interface alike. More work, but it keeps the middleware simple. Don't set `itemBarcodeInputFilter` to `whitespace` as a shortcut: it would strip spaces from the *scanned* value, and the 25,333 items stored *with* spaces would then never match.
 
 ## Printing test RFID labels (Zebra ZD500R)
 
-None of the current stock has RFID tags: every existing label is a printed Codabar barcode only. Test tags therefore come from the ZD500R, which prints the label and writes the tag in one job. [`tools/print_rfid_labels.ps1`](../tools/print_rfid_labels.ps1) builds the ZPL. **Untested on the printer so far.** Check the first few labels by hand.
+None of the current stock has RFID tags: every existing label is a printed Codabar barcode only. Test tags therefore come from the ZD500R, which prints the label and writes the tag in one job. [`testing/print_rfid_labels.ps1`](../../testing/print_rfid_labels.ps1) builds the ZPL. **Untested on the printer so far.** Check the first few labels by hand.
 
 **A test set that covers the lookup paths:**
 
@@ -124,15 +124,15 @@ $c = New-Object System.Net.Sockets.TcpClient('192.168.1.50', 9100); $s = $c.GetS
 $b = [Text.Encoding]::ASCII.GetBytes('^XA^HR^XZ'); $s.Write($b, 0, $b.Length); $c.Close()
 
 # Preview the ZPL only
-powershell -ExecutionPolicy Bypass -File tools\print_rfid_labels.ps1 -Barcode 33228100096617
+powershell -ExecutionPolicy Bypass -File testing\print_rfid_labels.ps1 -Barcode 33228100096617
 
 # Network printer: print, then compare each tag's read-back with what was written
-powershell -ExecutionPolicy Bypass -File tools\print_rfid_labels.ps1 -Barcode 33228100096617 -Start 99990001 -Count 3 -PrinterHost 192.168.1.50
+powershell -ExecutionPolicy Bypass -File testing\print_rfid_labels.ps1 -Barcode 33228100096617 -Start 99990001 -Count 3 -PrinterHost 192.168.1.50
 
 # USB printer shared in Windows as "ZD500R" (sends only, so there's no read-back)
-powershell -ExecutionPolicy Bypass -File tools\print_rfid_labels.ps1 -Barcode 33228100096617 -PrinterShare \\localhost\ZD500R
+powershell -ExecutionPolicy Bypass -File testing\print_rfid_labels.ps1 -Barcode 33228100096617 -PrinterShare \\localhost\ZD500R
 ```
-Then read the tags with the R220 (step 1 of [`steps.md`](../steps.md)). Each EPC should decode to its printed barcode, and a hand scanner reading the printed Codabar should give the same string.
+Then read the tags with the R220 (step 1 of [`steps.md`](../testing/steps.md)). Each EPC should decode to its printed barcode, and a hand scanner reading the printed Codabar should give the same string.
 
 ## Koha settings involved
 

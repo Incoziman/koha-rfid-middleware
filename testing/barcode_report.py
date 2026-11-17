@@ -4,7 +4,7 @@
 Reads tab-separated "barcode<TAB>homebranch" lines on stdin, as printed by:
 
     sudo koha-mysql middelburg --batch -e "SELECT barcode, homebranch FROM items" \
-      | python3 tools/barcode_report.py
+      | python3 testing/barcode_report.py
 
 Prints only counts and branch codes. It never prints barcodes, so the output
 is safe to paste into an issue or doc.

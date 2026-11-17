@@ -1,11 +1,11 @@
-"""EPC <-> item barcode, length-prefixed digit encoding (docs/uhf-rfid.md).
+"""EPC <-> item barcode, length-prefixed digit encoding (docs/reference/uhf-rfid.md).
 
     0E 33228100096617 00000000
     |  |              +-- zero padding up to the tag's EPC size (96 bits here)
     |  +----------------- the barcode digits, one hex nibble per digit
     +-------------------- number of digits, one byte (0E = 14)
 
-This is the encoding tools/print_rfid_labels.ps1 writes. Step 1 confirmed it
+This is the encoding testing/print_rfid_labels.ps1 writes. Step 1 confirmed it
 reads back unchanged from the R220 (2026-11-16).
 
 decode_epc() is strict on purpose: the UHF reader also sees tags that are not

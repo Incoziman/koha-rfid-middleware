@@ -1,6 +1,6 @@
 """Reader adapters. Each one hands raw EPC hex strings to a callback.
 
-This is the only module that knows about the reader hardware (docs/uhf-rfid.md,
+This is the only module that knows about the reader hardware (docs/reference/uhf-rfid.md,
 "Side note: cheaper hardware"). A desktop USB reader would get its own class
 here with the same start()/stop() shape; nothing downstream changes.
 
@@ -32,7 +32,8 @@ class R220Reader:
     """
 
     def __init__(self, host: str, on_epc: EpcCallback, port: int = 5084,
-                 antennas: Iterable[int] = (1,), power: int = 0, session: int = 2):
+                 antennas: Iterable[int] = (1,), power: int = 0, session: int = 2,
+                 keepalive_ms: int = 60_000):
         from sllurp.llrp import LLRPReaderClient, LLRPReaderConfig, LLRPReaderState
 
         self.host = host
@@ -44,6 +45,7 @@ class R220Reader:
             "tx_power": power,          # index into the reader's power table, 0 = max
             "session": session,         # 2: each tag answers, then stays quiet for a while
             "antennas": list(antennas),
+            "keepalive_interval": keepalive_ms,   # lets sllurp notice a dead connection
             "tag_content_selector": {
                 "EnableROSpecID": False, "EnableSpecIndex": False,
                 "EnableInventoryParameterSpecID": False, "EnableAntennaID": True,
@@ -76,6 +78,44 @@ class R220Reader:
 
     def stop(self) -> None:
         self._client.disconnect(timeout=5)
+
+    def is_alive(self) -> bool:
+        """False once the LLRP connection thread has ended (reader gone, cable out)."""
+        return self._client.is_alive()
+
+
+class FakeReader:
+    """Pretends the given EPCs are on the pad, reporting each every `interval` s.
+
+    Same start()/stop()/is_alive() shape as R220Reader. Used by the tests, and by
+    the desk agent's `fake_epcs` setting to work on the Koha plugin without the
+    R220 (which only allows one LLRP client at a time).
+    """
+
+    def __init__(self, on_epc: EpcCallback, epcs: Iterable[str] = (), interval: float = 0.5,
+                 antenna: int = 1, rssi: int = -40):
+        self._on_epc = on_epc
+        self.epcs = list(epcs)
+        self.interval, self.antenna, self.rssi = interval, antenna, rssi
+        self._stop = threading.Event()
+        self._thread = None
+
+    def start(self, timeout: float = 15.0) -> None:
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            for epc in list(self.epcs):
+                self._on_epc(epc, self.antenna, self.rssi)
+            self._stop.wait(self.interval)
+
+    def stop(self) -> None:
+        self._stop.set()
+
+    def is_alive(self) -> bool:
+        return bool(self._thread and self._thread.is_alive())
 
 
 def collect_epcs(host: str, seconds: float = 3.0, **kwargs) -> dict:
