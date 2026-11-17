@@ -22,39 +22,17 @@ How it works:
   6. append one JSON line per transaction to --log (card numbers masked)
 """
 import argparse
-import datetime
 import getpass
-import json
 import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from koha_rfid import sip2  # noqa: E402
-from koha_rfid.epc import NotLibraryTag, decode_epc  # noqa: E402
+from koha_rfid.selfcheck import circulation as circ  # noqa: E402
+from koha_rfid.selfcheck.circulation import mask  # noqa: E402
 
-ON_LOAN = "04"
 DEFAULT_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logs",
                            "circulation.jsonl")
-
-
-def mask(card: str) -> str:
-    """Card numbers are often SA ID numbers (POPIA): keep only the last 3 characters."""
-    return "*" * max(len(card) - 3, 0) + card[-3:]
-
-
-# SIP fields that can carry personal data: patron name, hold patron name/id,
-# address, email, phone.
-_PERSONAL = ("AE", "DA", "CY", "BD", "BE", "BF")
-
-
-def scrub(reply: str) -> str:
-    """Raw SIP reply for the log: personal fields dropped, card numbers masked."""
-    parts = []
-    for p in reply.split("|"):
-        if p[:2] in _PERSONAL:
-            continue
-        parts.append("AA" + mask(p[2:]) if p[:2] == "AA" else p)
-    return "|".join(parts)
 
 
 def gather(a):
@@ -68,20 +46,10 @@ def gather(a):
                                 power=a.power, session=a.session)
         except TimeoutError as e:
             raise SystemExit(str(e))
-        skipped = 0
-        for epc in sorted(epcs):
-            try:
-                out.append((decode_epc(epc), epc))
-            except NotLibraryTag:
-                skipped += 1
-        print(f"  {len(epcs)} tags, {len(epcs) - skipped} library items, "
-              f"{skipped} other tags skipped")
-    seen, uniq = set(), []
-    for b, epc in out:
-        if b not in seen:
-            seen.add(b)
-            uniq.append((b, epc))
-    return uniq
+        tags, skipped = circ.decode_tags(epcs)
+        out += tags
+        print(f"  {len(epcs)} tags, {len(tags)} library items, {skipped} other tags skipped")
+    return out
 
 
 def main() -> int:
@@ -136,27 +104,18 @@ def main() -> int:
         print(f"Patron {mask(a.card)}: {patron.name or '(no name)'}{warn}")
 
     # ---- plan ---------------------------------------------------------------
-    plan, skip = [], []
-    for tag_bc, epc in gather(a):
-        item = sip2.lookup_item(sip, a.institution, tag_bc)
-        if item is None:
-            skip.append((tag_bc, "not in Koha"))
-        elif a.action == "checkout" and item.circulation_status == ON_LOAN:
-            skip.append((tag_bc, f"{item.title!r} is already on loan - check it in first"))
-        elif a.action == "checkin" and item.circulation_status != ON_LOAN:
-            skip.append((tag_bc, f"{item.title!r} is not on loan ({item.status_text})"))
-        else:
-            plan.append((item, epc))
+    plan, skip = circ.plan(sip, a.institution, a.action, gather(a))
 
-    for bc, why in skip:
-        print(f"  skip {bc}: {why}")
+    for sk in skip:
+        print(f"  skip {sk.tag_barcode}: {sk.reason}")
     if not plan:
         print("Nothing to do.")
         return 0
     verb = "Check out" if a.action == "checkout" else "Check in"
     print(f"\n{verb} {len(plan)} item(s)" +
           (f" to {patron.name or mask(a.card)}" if patron else "") + ":")
-    for item, _ in plan:
+    for p in plan:
+        item = p.item
         via = f" (Koha barcode {item.barcode})" if item.repaired else ""
         print(f"  {item.tag_barcode}{via}  {item.title!r}  [{item.status_text}]")
     try:
@@ -168,54 +127,26 @@ def main() -> int:
         return 0
 
     # ---- do it --------------------------------------------------------------
-    os.makedirs(os.path.dirname(os.path.abspath(a.log)), exist_ok=True)
+    log = circ.TransactionLog(a.log)
     failures = 0
-    with open(a.log, "a", encoding="utf-8") as log:
-        for item, epc in plan:
-            entry = {
-                "time": datetime.datetime.now().isoformat(timespec="seconds"),
-                "action": a.action, "barcode": item.barcode,
-                "tag_barcode": item.tag_barcode, "epc": epc, "title": item.title,
-                "status_before": item.circulation_status,
-                "sip_host": a.sip_host, "sip_user": a.user,
-            }
-            if patron:
-                entry["patron"] = mask(a.card)
-            try:
-                if a.action == "checkout":
-                    r = sip2.do_checkout(sip, a.institution, a.card, item.barcode, pin)
-                else:
-                    r = sip2.do_checkin(sip, a.institution, location, item.barcode)
-                entry.update(ok=r.ok, message=r.message, due_date=r.due_date,
-                             security=r.security, alert=r.alert, alert_type=r.alert_type,
-                             reply=scrub(r.raw))
-            except (OSError, ConnectionError) as e:
-                # Don't resend: Koha may or may not have applied it. The 17 below tells us.
-                r = None
-                entry.update(ok=None, message=f"connection lost during transaction: {e}")
-
-            after = sip2.lookup_item(sip, a.institution, item.barcode)
-            entry["status_after"] = after.circulation_status if after else None
-            want_loan = a.action == "checkout"
-            verified = after is not None and (after.circulation_status == ON_LOAN) == want_loan
-            entry["verified"] = verified
-            log.write(json.dumps(entry, ensure_ascii=False) + "\n")
-            log.flush()
-
-            if r is None:
-                state = "OK (applied despite the drop)" if verified else "NOT applied"
-                print(f"  ?? {item.barcode}  connection lost - Koha status now: "
-                      f"{after.status_text if after else 'unknown'} -> {state}")
-                failures += not verified
-            elif r.ok and verified:
-                extra = f"due {r.due_date}" if r.due_date else ""
-                if r.alert:
-                    extra += f"  ALERT CV{r.alert_type}: put in the staff bin"
-                print(f"  OK {item.barcode}  {item.title!r}  {extra}".rstrip())
-            else:
-                failures += 1
-                print(f"  FAILED {item.barcode}  {item.title!r}: {r.message or 'no message'}"
-                      f"  (ok={int(r.ok)}, status now {after.status_text if after else '?'})")
+    for p in plan:
+        o = circ.run(sip, a.institution, a.action, p, card=a.card or "", pin=pin, location=location)
+        log.write(o, card=a.card or "", sip_host=a.sip_host, sip_user=a.user)
+        item, r, after = p.item, o.result, o.after
+        if r is None:
+            state = "OK (applied despite the drop)" if o.verified else "NOT applied"
+            print(f"  ?? {item.barcode}  connection lost - Koha status now: "
+                  f"{after.status_text if after else 'unknown'} -> {state}")
+            failures += not o.verified
+        elif o.ok:
+            extra = f"due {r.due_date}" if r.due_date else ""
+            if r.alert:
+                extra += f"  ALERT CV{r.alert_type}: put in the staff bin"
+            print(f"  OK {item.barcode}  {item.title!r}  {extra}".rstrip())
+        else:
+            failures += 1
+            print(f"  FAILED {item.barcode}  {item.title!r}: {r.message or 'no message'}"
+                  f"  (ok={int(r.ok)}, status now {after.status_text if after else '?'})")
     sip.close()
     print(f"\n{len(plan) - failures}/{len(plan)} done. Logged to {os.path.abspath(a.log)}")
     return 1 if failures else 0
