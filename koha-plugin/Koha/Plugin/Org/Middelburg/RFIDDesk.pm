@@ -19,7 +19,7 @@ use base qw(Koha::Plugins::Base);
 
 use Mojo::JSON qw(decode_json encode_json);
 
-our $VERSION = '0.3.0';
+our $VERSION = '0.4.0';
 
 our $metadata = {
     name            => 'RFID desk',
