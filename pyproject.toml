@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "koha-rfid-middleware"
-version = "0.2.0"
+version = "0.4.0"
 description = "UHF RFID for Koha: desk agent for the staff plugin, labels, SIP2 self-check"
 readme = "README.md"
 requires-python = ">=3.8"

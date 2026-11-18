@@ -4,13 +4,17 @@ Listens on 127.0.0.1 only. Browsers send an Origin header with every
 cross-origin request; only the Koha staff origin(s) in the config are
 answered, so other web pages can't read the pad or print labels.
 
-    GET  /status   agent version, reader and printer state
+    GET  /status   agent version, reader and printer state, current settings
     GET  /pad      library tags on the pad now: [{epc, barcode, candidates, ...}]
     POST /print    {"items": [{"barcode": "...", "title": "..."}]} -> read-back results
+    POST /config   {"reader": {...}, "printer": {...}} -> saved to the INI file and
+                   applied at once (the reader reconnects); see config.EDITABLE
+    POST /restart  {} -> drop and reconnect the reader
 """
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import threading
@@ -18,6 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Callable, Optional, Tuple
 
 from .. import __version__, labels
+from . import config
 from .config import AgentConfig
 from .pad import PadState, ReaderRunner, make_reader_factory
 
@@ -32,10 +37,12 @@ class Agent:
     def __init__(self, cfg: AgentConfig, reader_factory: Optional[Callable] = None,
                  host: str = "127.0.0.1"):
         self.cfg = cfg
+        self._reader_factory = reader_factory      # tests: a fixed reader, kept across apply()
         self.pad = PadState(cfg.pad_seconds)
         self.runner = ReaderRunner(reader_factory or make_reader_factory(cfg), self.pad,
                                    cfg.retry_seconds)
         self.print_lock = threading.Lock()
+        self._apply_lock = threading.Lock()
         self.httpd = ThreadingHTTPServer((host, cfg.listen_port), _make_handler(self))
         self.httpd.daemon_threads = True
         self.port = self.httpd.server_address[1]
@@ -56,11 +63,72 @@ class Agent:
 
     # ---- request handling, independent of HTTP plumbing -----------------------
     def status(self) -> dict:
-        reader = {"connected": self.pad.connected, "error": self.pad.error,
-                  "source": "fake" if self.cfg.fake_epcs else (self.cfg.reader_host or None)}
-        printer = {"configured": bool(self.cfg.printer_host), "host": self.cfg.printer_host or None}
+        cfg, pad = self.cfg, self.pad
+        reader = {"connected": pad.connected, "error": pad.error,
+                  "since": round(pad.state_seconds()),
+                  "source": "fake" if cfg.fake_epcs else (cfg.reader_host or None)}
+        printer = {"configured": bool(cfg.printer_host), "host": cfg.printer_host or None}
         return {"agent": "koha-rfid", "version": __version__, "reader": reader, "printer": printer,
-                "pad_seconds": self.cfg.pad_seconds}
+                "pad_seconds": cfg.pad_seconds,
+                "config": config.editable_values(cfg),
+                # Shown on the Koha page, but only changeable in the INI file.
+                "config_path": cfg.path or None, "listen_port": cfg.listen_port,
+                "allowed_origins": list(cfg.allowed_origins),
+                "editable": bool(cfg.path)}
+
+    def update_config(self, body: object) -> Tuple[int, dict]:
+        """Save reader/printer settings from Koha to the INI file and apply them."""
+        path = self.cfg.path
+        if not path:
+            return 409, {"error": "this agent was started without a config file, "
+                                  "so there is nowhere to save settings"}
+        try:
+            changes = config.validate_changes(body)
+        except config.ConfigError as e:
+            return 400, {"error": e.message, "field": e.field}
+        try:
+            with open(path, "rb") as fh:
+                before = fh.read()
+            config.save_changes(path, changes)
+            try:
+                new_cfg = config.load(path)
+            except (ValueError, KeyError) as e:   # the file had another bad line: undo
+                with open(path, "wb") as fh:
+                    fh.write(before)
+                return 500, {"error": f"{path} doesn't load after the change ({e}); left as it was"}
+        except OSError as e:
+            return 500, {"error": f"couldn't save {path}: {e}"}
+        log.info("settings changed from Koha: %s",
+                 ", ".join(f"{s}.{k}={v or '(empty)'}" for (s, k), v in changes.items()))
+        self.apply(new_cfg)
+        return 200, self.status()
+
+    def restart_reader(self) -> dict:
+        log.info("reader restart requested from Koha")
+        self.apply(self.cfg)
+        return self.status()
+
+    def apply(self, cfg: AgentConfig) -> None:
+        """Switch to new settings without stopping the HTTP server: the reader
+        thread is replaced, so the reader disconnects and connects again."""
+        # The listening socket and the CORS check were set up at start; keep
+        # reporting what is actually in force.
+        cfg = dataclasses.replace(cfg, listen_port=self.cfg.listen_port,
+                                  allowed_origins=self.cfg.allowed_origins,
+                                  log_file=self.cfg.log_file)
+        with self._apply_lock, self.print_lock:     # let a print in progress finish
+            old = self.runner
+            old.stop()
+            if old.is_alive():
+                old.join(timeout=20)                # frees the R220 (one connection only)
+                if old.is_alive():
+                    log.warning("old reader connection still closing; the new one will retry")
+            self.cfg = cfg
+            # A fresh pad: the old thread's last updates can't touch the new state.
+            self.pad = PadState(cfg.pad_seconds)
+            self.runner = ReaderRunner(self._reader_factory or make_reader_factory(cfg), self.pad,
+                                       cfg.retry_seconds, check_seconds=old.check_seconds)
+            self.runner.start()
 
     def pad_contents(self) -> dict:
         snap = self.pad.snapshot()
@@ -147,21 +215,34 @@ def _make_handler(agent: Agent):
             self._send(404, {"error": "not found"})
 
         def do_POST(self):
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                n = -1
+            # Read the body before any refusal: closing a socket with unread data
+            # makes Windows reset the connection, and the client never sees the reply.
+            raw = self.rfile.read(n) if 0 < n <= MAX_BODY else b""
             if not self._origin_ok():
                 return self._send(403, {"error": "origin not allowed"})
-            if self.path.split("?", 1)[0] != "/print":
+            path = self.path.split("?", 1)[0]
+            if path not in ("/print", "/config", "/restart"):
                 return self._send(404, {"error": "not found"})
             # JSON only: forces a CORS preflight, so other sites can't post blindly.
             if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
                 return self._send(415, {"error": "Content-Type must be application/json"})
-            n = int(self.headers.get("Content-Length") or 0)
-            if n <= 0 or n > MAX_BODY:
+            if not raw:
+                self.close_connection = True       # oversized: don't read the rest
                 return self._send(400, {"error": "missing or oversized body"})
             try:
-                body = json.loads(self.rfile.read(n).decode("utf-8"))
+                body = json.loads(raw.decode("utf-8"))
             except (ValueError, UnicodeDecodeError):
                 return self._send(400, {"error": "body is not JSON"})
-            code, payload = agent.print_items(body)
+            if path == "/print":
+                code, payload = agent.print_items(body)
+            elif path == "/config":
+                code, payload = agent.update_config(body)
+            else:
+                code, payload = 200, agent.restart_reader()
             self._send(code, payload)
 
     return Handler

@@ -10,6 +10,8 @@
  *    KOHA'S OWN FORM, so Koha records the logged-in librarian and branch and
  *    applies every rule. When Koha asks a question (hold, limit, transfer...)
  *    the queue waits for the librarian, then carries on.
+ *    The panel only appears on PCs where the agent has answered: a desk that
+ *    never ran the installer sees Koha's pages unchanged.
  *  - Bibliographic records: "RFID labels" prints labels on the agent's printer.
  *
  * The pure logic at the top is unit-tested with node (koha-plugin/test/).
@@ -33,6 +35,9 @@
     var QUEUE_KEY = "rfiddesk.queue";
     var QUEUE_MAX_AGE_MS = 15 * 60 * 1000;
     var POLL_MS = 1000;
+    var IDLE_POLL_MS = 15000;                       // no agent on this PC: check now and then
+    var SEEN_KEY = "rfiddesk.agentSeen";            // localStorage: last time the agent answered
+    var SEEN_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
     var CACHE_MS = 15000;
 
     // ======================================================================
@@ -113,6 +118,17 @@
         }
         if (q(".dialog.alert.audio-alert-warning")) { return "Koha has a check-in message for this item"; }
         return null;
+    }
+
+    /**
+     * Show the check-out / check-in panel? Only on a PC that uses RFID: the agent
+     * answers now, answered in the last SEEN_MAX_AGE_MS (so "agent not running"
+     * still shows when it stops), or an RFID queue is running.
+     */
+    function panelVisible(agentOk, seenAt, queueRunning, now) {
+        if (agentOk === true || queueRunning) { return true; }
+        var t = Number(seenAt);
+        return t > 0 && now - t < SEEN_MAX_AGE_MS;
     }
 
     function newQueue(mode, borrowernumber, barcodes, now) {
@@ -245,6 +261,12 @@
         try { if (q) { storage.setItem(QUEUE_KEY, JSON.stringify(q)); } else { storage.removeItem(QUEUE_KEY); } }
         catch (e) { /* storage unavailable: queue can't survive reloads */ }
     }
+    function loadSeen(win) {
+        try { return win.localStorage.getItem(SEEN_KEY); } catch (e) { return null; }
+    }
+    function saveSeen(win, now) {
+        try { win.localStorage.setItem(SEEN_KEY, String(now)); } catch (e) { /* not remembered */ }
+    }
 
     // ---- check-out / check-in panel ----------------------------------------
     function desk(win, cfg, mode) {
@@ -274,7 +296,14 @@
             el("h3", {}, [dot, el("span", { text: "RFID pad " }), statusText]),
             el("table", {}, [tbody]), msg, goBtn, stopBtn, contBtn
         ]);
-        form.parentNode.insertBefore(panel, form);
+
+        // Inserted only once this PC shows signs of using RFID (panelVisible).
+        function showIfUsed() {
+            var q = loadQueue(storage);
+            var visible = panelVisible(state.agentOk, loadSeen(win), !!(q && q.mode === mode), Date.now());
+            if (visible && !panel.parentNode) { form.parentNode.insertBefore(panel, form); }
+            return visible;
+        }
 
         function say(text, kind) {
             msg.textContent = text || "";
@@ -283,6 +312,7 @@
         }
 
         function render() {
+            if (!showIfUsed()) { return; }
             var q = loadQueue(storage);
             var running = !!(q && q.mode === mode);
             if (state.agentOk === false) {
@@ -312,9 +342,10 @@
 
         function poll() {
             var q = loadQueue(storage);
-            if (q && q.mode === mode) { return; }            // queue running: page will reload
-            agent.pad().then(function (pad) {
+            if (q && q.mode === mode) { return Promise.resolve(); }   // queue running: page will reload
+            return agent.pad().then(function (pad) {
                 state.agentOk = true;
+                saveSeen(win, Date.now());
                 state.readerOk = !!pad.reader_connected;
                 state.tags = pad.tags || [];
                 var need = needLookup(state.tags, koha.cache, Date.now());
@@ -414,9 +445,15 @@
             step();
         }
 
+        // Poll every second while the panel is up; otherwise only now and then, so
+        // a desk without the agent doesn't hammer 127.0.0.1 (each miss is a console error).
+        function loop() {
+            win.setTimeout(function () { poll().then(loop, loop); },
+                panel.parentNode ? POLL_MS : IDLE_POLL_MS);
+        }
+
         render();
-        if (!step()) { poll(); }
-        win.setInterval(poll, POLL_MS);
+        if (step()) { loop(); } else { poll().then(loop, loop); }
     }
 
     // ---- RFID labels on bibliographic records -------------------------------
@@ -511,7 +548,7 @@
 
     return {
         resolveTag: resolveTag, decide: decide, planPad: planPad, needLookup: needLookup,
-        blockedBy: blockedBy, newQueue: newQueue, nextStep: nextStep, verify: verify,
-        QUEUE_MAX_AGE_MS: QUEUE_MAX_AGE_MS, start: start
+        blockedBy: blockedBy, panelVisible: panelVisible, newQueue: newQueue, nextStep: nextStep, verify: verify,
+        QUEUE_MAX_AGE_MS: QUEUE_MAX_AGE_MS, SEEN_MAX_AGE_MS: SEEN_MAX_AGE_MS, start: start
     };
 });

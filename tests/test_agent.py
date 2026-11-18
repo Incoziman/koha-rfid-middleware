@@ -27,6 +27,23 @@ def wait_for(cond, timeout=3.0):
     return False
 
 
+def request(base, path, origin=KOHA, method="GET", body=None, ctype="application/json"):
+    headers = {}
+    if origin:
+        headers["Origin"] = origin
+    data = None
+    if body is not None:
+        data = body if isinstance(body, bytes) else json.dumps(body).encode()
+        headers["Content-Type"] = ctype
+    r = urllib.request.Request(base + path, data=data, method=method, headers=headers)
+    try:
+        with urllib.request.urlopen(r, timeout=30) as resp:
+            raw = resp.read()
+            return resp.status, dict(resp.headers), json.loads(raw) if raw else None
+    except urllib.error.HTTPError as e:
+        return e.code, dict(e.headers), json.loads(e.read() or b"null")
+
+
 class Pad(unittest.TestCase):
     def test_tags_leave_the_pad(self):
         now = [100.0]
@@ -108,21 +125,8 @@ class Http(unittest.TestCase):
     def tearDown(self):
         self.agent.stop()
 
-    def req(self, path, origin=KOHA, method="GET", body=None, ctype="application/json"):
-        headers = {}
-        if origin:
-            headers["Origin"] = origin
-        data = None
-        if body is not None:
-            data = body if isinstance(body, bytes) else json.dumps(body).encode()
-            headers["Content-Type"] = ctype
-        r = urllib.request.Request(self.base + path, data=data, method=method, headers=headers)
-        try:
-            with urllib.request.urlopen(r, timeout=5) as resp:
-                raw = resp.read()
-                return resp.status, dict(resp.headers), json.loads(raw) if raw else None
-        except urllib.error.HTTPError as e:
-            return e.code, dict(e.headers), json.loads(e.read() or b"null")
+    def req(self, path, **kw):
+        return request(self.base, path, **kw)
 
     def test_status(self):
         code, headers, body = self.req("/status")
@@ -193,6 +197,152 @@ class Config(unittest.TestCase):
     def test_missing_file(self):
         with self.assertRaises(FileNotFoundError):
             config.load("nope.ini")
+
+    def test_save_keeps_comments_and_other_keys(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "agent.ini")
+            with open(p, "w", encoding="utf-8", newline="") as fh:
+                fh.write(EXAMPLE)
+            changes = config.validate_changes({"reader": {"host": "10.0.0.7", "power": "21",
+                                                          "antennas": [1, 2], "session": 1},
+                                               "printer": {"host": "192.168.1.2"}})
+            config.save_changes(p, changes)
+            with open(p, encoding="utf-8", newline="") as fh:
+                text = fh.read()
+            c = config.load(p)
+        self.assertIn("; Index into the R220 power table", text)
+        self.assertIn("; fake_epcs = 0E33", text)                 # commented key untouched
+        self.assertIn("\r\n", text)                               # line endings kept
+        self.assertIn("power = 21\r\n", text)
+        self.assertIn("printer]\r\nhost = 192.168.1.2\r\n", text)
+        # session wasn't in the file: added at the end of [reader], before [printer]
+        self.assertLess(text.index("session = 1"), text.index("[printer]"))
+        self.assertEqual((c.reader_host, c.power, c.antennas, c.session, c.printer_host),
+                         ("10.0.0.7", 21, (1, 2), 1, "192.168.1.2"))
+        self.assertEqual(c.allowed_origins, (KOHA,))              # untouched
+        self.assertEqual(c.path, os.path.abspath(p))
+
+    def test_save_empty_and_missing_section(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "agent.ini")
+            with open(p, "w", encoding="utf-8") as fh:
+                fh.write("[reader]\nhost = 1.2.3.4\n")
+            config.save_changes(p, config.validate_changes({"reader": {"host": ""},
+                                                            "printer": {"port": 9101}}))
+            c = config.load(p)
+        self.assertEqual((c.reader_host, c.printer_port), ("", 9101))
+
+    def test_validate_rejects(self):
+        bad = [
+            {"agent": {"listen_port": 1}},
+            {"agent": {"allowed_origins": "https://evil.example"}},
+            {"reader": {"fake_epcs": "0E33"}},
+            {"reader": {"log_file": "C:\\Windows\\x"}},
+            {"reader": {"power": 92}},
+            {"reader": {"power": "max"}},
+            {"reader": {"power": True}},
+            {"reader": {"port": 0}},
+            {"reader": {"host": "1.2.3.4\nlog_file = x"}},
+            {"reader": {"host": "a b"}},
+            {"reader": {"host": "[agent]"}},
+            {"reader": {"antennas": "1, 5"}},
+            {"reader": {"antennas": ""}},
+            {"reader": {"pad_seconds": 0}},
+            {"printer": {"host": "x;y"}},
+            {"printer": "192.168.1.2"},
+            [],
+            {},
+        ]
+        for body in bad:
+            with self.assertRaises(config.ConfigError, msg=repr(body)):
+                config.validate_changes(body)
+        with self.assertRaises(config.ConfigError) as cm:
+            config.validate_changes({"reader": {"power": 99}})
+        self.assertEqual(cm.exception.field, "reader.power")
+
+
+EXAMPLE = (
+    "; agent settings\r\n[agent]\r\nlisten_port = 8765\r\nallowed_origins = " + KOHA + "\r\n"
+    "log_file = agent.log\r\n\r\n[reader]\r\nhost = 192.168.1.3\r\nantennas = 1\r\n"
+    "; Index into the R220 power table: 0 = max\r\npower = 0\r\npad_seconds = 2.0\r\n"
+    "; fake_epcs = 0E33\r\n\r\n[printer]\r\nhost =\r\nport = 9100\r\n"
+)
+
+
+class HttpConfig(unittest.TestCase):
+    """POST /config and /restart against an agent started from an INI file."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.ini = os.path.join(self.dir.name, "agent.ini")
+        with open(self.ini, "w", encoding="utf-8") as fh:
+            fh.write(f"[agent]\nlisten_port = 0\nallowed_origins = {KOHA}\n"
+                     f"[reader]\nfake_epcs = {DOG}\nretry_seconds = 1\n[printer]\nhost =\n")
+        self.agent = Agent(config.load(self.ini))
+        self.agent.runner.check_seconds = 0.05
+        self.agent.start()
+        self.base = f"http://127.0.0.1:{self.agent.port}"
+        self.assertTrue(wait_for(lambda: self.agent.pad.connected))
+
+    def tearDown(self):
+        self.agent.stop()
+        self.dir.cleanup()
+
+    def req(self, path, **kw):
+        return request(self.base, path, **kw)
+
+    def test_status_carries_settings(self):
+        code, _, body = self.req("/status")
+        self.assertEqual(code, 200)
+        self.assertEqual(body["config"]["reader"]["power"], 0)
+        self.assertEqual(body["config"]["printer"]["host"], "")
+        self.assertEqual(body["allowed_origins"], [KOHA])
+        self.assertTrue(body["editable"])
+        self.assertEqual(body["config_path"], os.path.abspath(self.ini))
+
+    def test_change_settings(self):
+        old_runner = self.agent.runner
+        code, _, body = self.req("/config", method="POST",
+                                      body={"reader": {"power": 41, "pad_seconds": 3},
+                                            "printer": {"host": "192.168.1.2"}})
+        self.assertEqual(code, 200, body)
+        self.assertEqual(body["config"]["reader"]["power"], 41)
+        self.assertEqual(body["printer"]["host"], "192.168.1.2")
+        self.assertEqual(self.agent.cfg.pad_seconds, 3.0)
+        self.assertIsNot(self.agent.runner, old_runner)
+        self.assertFalse(old_runner.is_alive())
+        self.assertTrue(wait_for(lambda: self.agent.pad.connected))   # reader back
+        self.assertEqual(config.load(self.ini).power, 41)
+        self.assertEqual(self.agent.port, self.agent.httpd.server_address[1])
+
+    def test_bad_value_leaves_file_alone(self):
+        with open(self.ini, "rb") as fh:
+            before = fh.read()
+        code, _, body = self.req("/config", method="POST", body={"reader": {"power": 200}})
+        self.assertEqual(code, 400)
+        self.assertEqual(body["field"], "reader.power")
+        with open(self.ini, "rb") as fh:
+            self.assertEqual(fh.read(), before)
+
+    def test_other_origins_cant_change_settings(self):
+        code, _, _ = self.req("/config", origin="https://evil.example", method="POST",
+                                   body={"printer": {"host": "10.6.6.6"}})
+        self.assertEqual(code, 403)
+        self.assertEqual(config.load(self.ini).printer_host, "")
+        self.assertEqual(self.req("/config", method="POST", body=b"{}",
+                                       ctype="text/plain")[0], 415)
+
+    def test_restart(self):
+        old_runner = self.agent.runner
+        code, _, body = self.req("/restart", method="POST", body={})
+        self.assertEqual(code, 200)
+        self.assertIsNot(self.agent.runner, old_runner)
+        self.assertTrue(wait_for(lambda: self.agent.pad.connected))
+
+    def test_no_config_file(self):
+        self.agent.cfg.path = ""
+        code, _, _ = self.req("/config", method="POST", body={"reader": {"power": 1}})
+        self.assertEqual(code, 409)
 
 
 if __name__ == "__main__":

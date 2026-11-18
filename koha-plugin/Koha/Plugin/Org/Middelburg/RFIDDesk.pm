@@ -19,13 +19,13 @@ use base qw(Koha::Plugins::Base);
 
 use Mojo::JSON qw(decode_json encode_json);
 
-our $VERSION = '0.2.0';
+our $VERSION = '0.4.0';
 
 our $metadata = {
     name            => 'RFID desk',
     author          => 'koha-rfid-middleware',
     date_authored   => '2026-11-17',
-    date_updated    => '2026-11-17',
+    date_updated    => '2026-11-18',
     minimum_version => '21.11.00.000',
     maximum_version => undef,
     version         => $VERSION,

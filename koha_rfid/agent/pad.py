@@ -38,6 +38,10 @@ class PadState:
             if not connected:
                 self._seen.clear()   # nothing is known to be on the pad without a reader
 
+    def state_seconds(self) -> float:
+        """How long the reader has been connected (or disconnected)."""
+        return self._clock() - self.since
+
     def snapshot(self) -> Dict:
         """{'tags': [library tags on the pad], 'foreign': count of other tags}."""
         now = self._clock()

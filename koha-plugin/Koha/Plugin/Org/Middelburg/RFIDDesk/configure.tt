@@ -57,6 +57,325 @@
                 </fieldset>
             </form>
 
+            <h2 id="this-desk">This desk PC</h2>
+            <p class="hint">The desk agent of the PC this page is open on: its status, and its reader and printer settings
+               (<code>C:\koha-rfid\agent.ini</code>). Open this page on each desk PC to see or change that desk.</p>
+            <div id="rfid-agent" data-agent="[% agent_url | html %]">
+                <div id="rfid-agent-msg" class="dialog message">Looking for the desk agent at <code>[% agent_url | html %]</code> &hellip;</div>
+
+                <div id="rfid-agent-online" style="display: none;">
+                    <table class="table table-condensed" style="width: auto;">
+                        <tbody>
+                            <tr><th scope="row">Agent</th><td id="rfid-st-agent"></td></tr>
+                            <tr><th scope="row">RFID reader</th><td id="rfid-st-reader"></td></tr>
+                            <tr><th scope="row">On the pad now</th><td id="rfid-st-pad"></td></tr>
+                            <tr><th scope="row">Label printer</th><td id="rfid-st-printer"></td></tr>
+                            <tr><th scope="row">Settings file</th><td id="rfid-st-file"></td></tr>
+                            <tr><th scope="row">Listens on</th><td><span id="rfid-st-listen"></span>
+                                <span class="hint">for <span id="rfid-st-origins"></span>. These two change only in agent.ini, then <code>-Restart</code>.</span></td></tr>
+                        </tbody>
+                    </table>
+
+                    <form id="rfid-agent-form" class="form-horizontal" novalidate>
+                        <fieldset class="rows">
+                            <legend>RFID reader (Impinj R220)</legend>
+                            <ol>
+                                <li>
+                                    <label for="rfid-reader-host">IP address:</label>
+                                    <input type="text" id="rfid-reader-host" data-key="reader.host" size="20" placeholder="e.g. 192.168.1.3" />
+                                    <span class="hint">Empty if this desk has no reader.</span>
+                                    <div class="rfid-err error" data-for="reader.host"></div>
+                                </li>
+                                <li>
+                                    <label for="rfid-reader-power">Pad power:</label>
+                                    <input type="number" id="rfid-reader-power" data-key="reader.power" min="0" max="91" step="1" style="width: 6em;" />
+                                    <strong id="rfid-power-dbm"></strong>
+                                    <div class="rfid-err error" data-for="reader.power"></div>
+                                    <div class="hint">
+                                        An index into the R220's power table: <strong>0 = maximum</strong>, otherwise 10 + (index &minus; 1) &times; 0.25 dBm.
+                                        Lower it until books about 1 m from the pad are no longer listed under <em>On the pad now</em>.
+                                        <table class="table table-condensed table-bordered" style="width: auto; margin-top: .5em;">
+                                            <tbody>
+                                                <tr><th scope="row">index</th><td>0</td><td>1</td><td>21</td><td>41</td><td>61</td><td>81</td><td>91</td></tr>
+                                                <tr><th scope="row">dBm</th><td>32.5 (max)</td><td>10.0 (lowest)</td><td>15.0</td><td>20.0</td><td>25.0</td><td>30.0</td><td>32.5</td></tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </li>
+                                <li>
+                                    <label for="rfid-reader-antennas">Antennas:</label>
+                                    <input type="text" id="rfid-reader-antennas" data-key="reader.antennas" size="10" />
+                                    <span class="hint">Antenna ports in use, 1&ndash;4, comma-separated. Normally <code>1</code>.</span>
+                                    <div class="rfid-err error" data-for="reader.antennas"></div>
+                                </li>
+                                <li>
+                                    <label for="rfid-reader-pad_seconds">Pad memory:</label>
+                                    <input type="text" id="rfid-reader-pad_seconds" data-key="reader.pad_seconds" size="6" /> seconds
+                                    <span class="hint">A tag stays "on the pad" this long after its last read.</span>
+                                    <div class="rfid-err error" data-for="reader.pad_seconds"></div>
+                                </li>
+                                <li>
+                                    <label for="rfid-reader-retry_seconds">Reconnect every:</label>
+                                    <input type="text" id="rfid-reader-retry_seconds" data-key="reader.retry_seconds" size="6" /> seconds
+                                    <span class="hint">When the reader is off or unplugged.</span>
+                                    <div class="rfid-err error" data-for="reader.retry_seconds"></div>
+                                </li>
+                                <li>
+                                    <label for="rfid-reader-session">Session:</label>
+                                    <input type="number" id="rfid-reader-session" data-key="reader.session" min="0" max="3" step="1" style="width: 6em;" />
+                                    <span class="hint">Gen2 session. Keep <code>0</code>: tags answer every round, so the pad list is live.</span>
+                                    <div class="rfid-err error" data-for="reader.session"></div>
+                                </li>
+                                <li>
+                                    <label for="rfid-reader-port">LLRP port:</label>
+                                    <input type="number" id="rfid-reader-port" data-key="reader.port" min="1" max="65535" style="width: 7em;" />
+                                    <span class="hint">Normally <code>5084</code>.</span>
+                                    <div class="rfid-err error" data-for="reader.port"></div>
+                                </li>
+                            </ol>
+                        </fieldset>
+                        <fieldset class="rows">
+                            <legend>Label printer (Zebra ZD500R)</legend>
+                            <ol>
+                                <li>
+                                    <label for="rfid-printer-host">IP address:</label>
+                                    <input type="text" id="rfid-printer-host" data-key="printer.host" size="20" />
+                                    <button type="button" class="btn btn-default btn-xs btn-sm" id="rfid-printer-zebra">Use 192.168.1.2 (Zebra default)</button>
+                                    <button type="button" class="btn btn-default btn-xs btn-sm" id="rfid-printer-none">None</button>
+                                    <span class="hint">Empty if this desk doesn't print RFID labels.</span>
+                                    <div class="rfid-err error" data-for="printer.host"></div>
+                                </li>
+                                <li>
+                                    <label for="rfid-printer-port">Port:</label>
+                                    <input type="number" id="rfid-printer-port" data-key="printer.port" min="1" max="65535" style="width: 7em;" />
+                                    <span class="hint">Raw printing, normally <code>9100</code>.</span>
+                                    <div class="rfid-err error" data-for="printer.port"></div>
+                                </li>
+                            </ol>
+                        </fieldset>
+                        <fieldset class="action">
+                            <button type="submit" class="btn btn-primary" id="rfid-agent-save">Save to this desk's agent</button>
+                            <button type="button" class="btn btn-default" id="rfid-agent-reconnect">Reconnect reader</button>
+                            <button type="button" class="btn btn-default" id="rfid-agent-undo">Undo changes</button>
+                            <span id="rfid-agent-result" style="margin-left: 1em;"></span>
+                        </fieldset>
+                    </form>
+                </div>
+            </div>
+            <style>
+                #rfid-agent .rfid-err:empty { display: none; }
+                #rfid-agent .rfid-err { color: #c00; margin-top: .25em; }
+                #rfid-agent .rfid-ok { color: #080; font-weight: bold; }
+                #rfid-agent .rfid-bad { color: #c00; font-weight: bold; }
+            </style>
+            <script>
+            (function () {
+                "use strict";
+                var root = document.getElementById("rfid-agent");
+                var agentUrl = root.getAttribute("data-agent");
+                var $ = function (id) { return document.getElementById(id); };
+                var form = $("rfid-agent-form");
+                var inputs = Array.prototype.slice.call(form.querySelectorAll("[data-key]"));
+                var loaded = null;      // settings as last read from the agent
+                var dirty = false;      // the librarian has typed something not yet saved
+                var online = false;
+                var busy = false;
+
+                function call(path, method, body, ms) {
+                    var ctl = window.AbortController ? new AbortController() : null;
+                    var t = ctl ? setTimeout(function () { ctl.abort(); }, ms || 3000) : null;
+                    var opts = { method: method || "GET", cache: "no-store" };
+                    if (ctl) { opts.signal = ctl.signal; }
+                    if (body !== undefined) {
+                        opts.headers = { "Content-Type": "application/json" };
+                        opts.body = JSON.stringify(body);
+                    }
+                    return fetch(agentUrl + path, opts).then(function (r) {
+                        return r.json().catch(function () { return {}; }).then(function (j) {
+                            return { ok: r.ok, status: r.status, body: j };
+                        });
+                    }).finally(function () { if (t) { clearTimeout(t); } });
+                }
+
+                function text(id, s, cls) {
+                    var el = $(id);
+                    el.textContent = s;
+                    el.className = cls || "";
+                }
+
+                function ago(sec) {
+                    if (sec < 90) { return sec + " s"; }
+                    if (sec < 5400) { return Math.round(sec / 60) + " min"; }
+                    return Math.round(sec / 3600) + " h";
+                }
+
+                function dbm(index) {
+                    var i = parseInt(index, 10);
+                    if (isNaN(i) || i < 0 || i > 91 || String(i) !== String(index).trim()) { return ""; }
+                    return i === 0 ? "0 = 32.5 dBm (maximum)" : i + " = " + (10 + (i - 1) * 0.25).toFixed(2).replace(/0$/, "") + " dBm";
+                }
+
+                function fmt(v) { return Array.isArray(v) ? v.join(", ") : (v === null || v === undefined ? "" : String(v)); }
+                function valueOf(key) { var p = key.split("."); return loaded && loaded[p[0]] ? loaded[p[0]][p[1]] : ""; }
+
+                function fillForm() {
+                    inputs.forEach(function (el) { el.value = fmt(valueOf(el.getAttribute("data-key"))); });
+                    $("rfid-power-dbm").textContent = dbm($("rfid-reader-power").value);
+                    dirty = false;
+                }
+
+                function clearErrors() {
+                    Array.prototype.forEach.call(form.querySelectorAll(".rfid-err"), function (e) { e.textContent = ""; });
+                }
+
+                function showOffline() {
+                    online = false;
+                    $("rfid-agent-online").style.display = "none";
+                    var msg = $("rfid-agent-msg");
+                    msg.style.display = "";
+                    msg.className = "dialog alert";
+                    msg.textContent = "No desk agent answering at " + agentUrl + " on this PC. Checking whether one is running \u2026";
+                    // A refused origin and a stopped agent look the same to a normal
+                    // request. An opaque (no-cors) request still succeeds if something answers.
+                    fetch(agentUrl + "/status", { mode: "no-cors", cache: "no-store" }).then(function () {
+                        msg.textContent = "The desk agent is running on this PC but refuses this page. In C:\\koha-rfid\\agent.ini, set "
+                            + "allowed_origins = " + location.origin + " (exactly as in the address bar), then run "
+                            + "C:\\koha-rfid\\install_agent.ps1 -Restart as administrator.";
+                    }, function () {
+                        msg.textContent = "No desk agent answering at " + agentUrl + " on this PC. If this is a desk PC, set it up with the command "
+                            + "under \"Set up a desk PC\" below, or check it with C:\\koha-rfid\\install_agent.ps1 -Status. "
+                            + "If it is running, check that allowed_origins in C:\\koha-rfid\\agent.ini is " + location.origin + ".";
+                    });
+                }
+
+                function render(s) {
+                    var wasOnline = online;
+                    online = true;
+                    $("rfid-agent-msg").style.display = "none";
+                    $("rfid-agent-online").style.display = "";
+                    text("rfid-st-agent", "koha-rfid agent " + s.version + " at " + agentUrl);
+                    var r = s.reader || {};
+                    if (r.connected) {
+                        text("rfid-st-reader", "Connected to " + (r.source === "fake" ? "fake tags (fake_epcs)" : r.source)
+                             + ", for " + ago(r.since), "rfid-ok");
+                    } else if (!r.source) {
+                        text("rfid-st-reader", "None set: enter the reader's IP address below.", "rfid-bad");
+                    } else {
+                        text("rfid-st-reader", "NOT connected to " + r.source + ": " + (r.error || "connecting")
+                             + " (for " + ago(r.since) + ", retrying)", "rfid-bad");
+                    }
+                    var p = s.printer || {};
+                    text("rfid-st-printer", p.configured ? p.host : "None set (RFID labels can't be printed on this desk)");
+                    text("rfid-st-file", s.config_path || "(none: the agent was started without one)");
+                    text("rfid-st-listen", "127.0.0.1:" + s.listen_port);
+                    text("rfid-st-origins", (s.allowed_origins || []).join(", ") || "(none)");
+                    loaded = s.config;
+                    if (!wasOnline || !dirty) { fillForm(); }
+                    inputs.concat([$("rfid-agent-save"), $("rfid-printer-zebra"), $("rfid-printer-none")]).forEach(function (el) {
+                        el.disabled = !s.editable;
+                    });
+                    if (!s.editable) { text("rfid-agent-result", "Read-only: the agent has no settings file to save to.", "rfid-bad"); }
+                }
+
+                function refresh() {
+                    if (busy) { return Promise.resolve(); }
+                    return call("/status").then(function (res) {
+                        if (res.ok) { render(res.body); } else { showOffline(); }
+                    }, showOffline);
+                }
+
+                function refreshPad() {
+                    if (!online || document.hidden) { return; }
+                    call("/pad", "GET", undefined, 1500).then(function (res) {
+                        if (!res.ok) { return; }
+                        var tags = res.body.tags || [];
+                        var other = res.body.foreign || 0;
+                        if (!res.body.reader_connected) { text("rfid-st-pad", "(reader not connected)"); return; }
+                        var s = tags.length + (tags.length === 1 ? " library tag" : " library tags");
+                        if (tags.length) { s += ": " + tags.map(function (t) { return t.barcode; }).join(", "); }
+                        if (other) { s += " + " + other + " other"; }
+                        text("rfid-st-pad", s, tags.length ? "rfid-ok" : "");
+                    }, function () {});
+                }
+
+                function changes() {
+                    var out = {}, n = 0;
+                    inputs.forEach(function (el) {
+                        var key = el.getAttribute("data-key"), v = el.value.trim();
+                        if (v === fmt(valueOf(key))) { return; }
+                        var p = key.split(".");
+                        (out[p[0]] = out[p[0]] || {})[p[1]] = v;
+                        n++;
+                    });
+                    return n ? out : null;
+                }
+
+                form.addEventListener("input", function (e) {
+                    dirty = true;
+                    if (e.target.id === "rfid-reader-power") { $("rfid-power-dbm").textContent = dbm(e.target.value); }
+                    text("rfid-agent-result", "");
+                });
+                $("rfid-printer-zebra").addEventListener("click", function () {
+                    $("rfid-printer-host").value = "192.168.1.2"; dirty = true; text("rfid-agent-result", "");
+                });
+                $("rfid-printer-none").addEventListener("click", function () {
+                    $("rfid-printer-host").value = ""; dirty = true; text("rfid-agent-result", "");
+                });
+                $("rfid-agent-undo").addEventListener("click", function () {
+                    clearErrors(); fillForm(); text("rfid-agent-result", "");
+                });
+
+                form.addEventListener("submit", function (e) {
+                    e.preventDefault();
+                    clearErrors();
+                    var body = changes();
+                    if (!body) { text("rfid-agent-result", "Nothing changed."); return; }
+                    busy = true;
+                    text("rfid-agent-result", "Saving \u2026");
+                    // The agent waits for the old reader connection to close: allow time.
+                    call("/config", "POST", body, 30000).then(function (res) {
+                        busy = false;
+                        if (res.ok) {
+                            render(res.body);
+                            fillForm();
+                            text("rfid-agent-result", "Saved to agent.ini. The reader is reconnecting with the new settings.", "rfid-ok");
+                            return;
+                        }
+                        var err = res.body || {};
+                        var slot = err.field && form.querySelector('.rfid-err[data-for="' + err.field + '"]');
+                        if (slot) { slot.textContent = err.error; }
+                        text("rfid-agent-result", "Not saved: " + (err.field ? err.field + " " : "") + (err.error || ("HTTP " + res.status)), "rfid-bad");
+                    }, function () {
+                        busy = false;
+                        text("rfid-agent-result", "Not saved: the agent didn't answer.", "rfid-bad");
+                        refresh();
+                    });
+                });
+
+                $("rfid-agent-reconnect").addEventListener("click", function () {
+                    busy = true;
+                    text("rfid-agent-result", "Reconnecting the reader \u2026");
+                    call("/restart", "POST", {}, 30000).then(function (res) {
+                        busy = false;
+                        if (res.ok) {
+                            render(res.body);
+                            text("rfid-agent-result", "Reader reconnecting.", "rfid-ok");
+                        } else {
+                            text("rfid-agent-result", "Failed: " + ((res.body || {}).error || ("HTTP " + res.status)), "rfid-bad");
+                        }
+                    }, function () {
+                        busy = false;
+                        text("rfid-agent-result", "The agent didn't answer.", "rfid-bad");
+                        refresh();
+                    });
+                });
+
+                refresh();
+                setInterval(function () { if (!document.hidden) { refresh(); } }, 5000);
+                setInterval(refreshPad, 1000);
+            })();
+            </script>
+
             <h2 id="desk-setup">Set up a desk PC</h2>
             [% IF agent_files.size %]
             <p>On the desk PC, open this page, then open <strong>PowerShell as administrator</strong>
@@ -68,10 +387,10 @@
                 <li>It installs the desk agent [% plugin_version | html %] (and Python 3.12 if needed), and starts it in the background from then on.
                     The PC needs internet access during the install, for the Python packages.</li>
                 <li>The first time, it asks for the RFID reader's IP address, the pad power and the label printer's IP address. Press Enter to skip any of them.
-                    They are kept in <code>C:\koha-rfid\agent.ini</code>.</li>
+                    They are kept in <code>C:\koha-rfid\agent.ini</code>. Change them later under <a href="#this-desk">This desk PC</a> above, on that PC.</li>
                 <li>After upgrading this plugin, update each desk PC with <code>C:\koha-rfid\install_agent.ps1 -Update</code> (as administrator),
                     or paste the command again.</li>
-                <li>Check a desk with <code>C:\koha-rfid\install_agent.ps1 -Status</code>.</li>
+                <li>Check a desk by opening this page on it, or with <code>C:\koha-rfid\install_agent.ps1 -Status</code>.</li>
             </ul>
             <p class="hint">Files, if you need them by hand:
                 [% FOREACH f IN agent_files %]<a href="[% static_base | html %]/[% f | uri %]">[% f | html %]</a>[% UNLESS loop.last %] &middot; [% END %][% END %]
