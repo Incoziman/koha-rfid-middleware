@@ -56,6 +56,54 @@
                     <a class="cancel" href="/cgi-bin/koha/plugins/plugins-home.pl">Cancel</a>
                 </fieldset>
             </form>
+
+            <h2 id="desk-setup">Set up a desk PC</h2>
+            [% IF agent_files.size %]
+            <p>On the desk PC, open this page, then open <strong>PowerShell as administrator</strong>
+               (Start menu, type <em>PowerShell</em>, right-click, <em>Run as administrator</em>), paste this command and press Enter:</p>
+            <pre id="rfid-setup-command" style="white-space: pre-wrap; word-break: break-all;"></pre>
+            <p><button type="button" class="btn btn-default" id="rfid-setup-copy">Copy command</button>
+               <span id="rfid-setup-copied" class="hint" style="display: none;">Copied.</span></p>
+            <ul>
+                <li>It installs the desk agent [% plugin_version | html %] (and Python 3.12 if needed), and starts it in the background from then on.
+                    The PC needs internet access during the install, for the Python packages.</li>
+                <li>The first time, it asks for the RFID reader's IP address, the pad power and the label printer's IP address. Press Enter to skip any of them.
+                    They are kept in <code>C:\koha-rfid\agent.ini</code>.</li>
+                <li>After upgrading this plugin, update each desk PC with <code>C:\koha-rfid\install_agent.ps1 -Update</code> (as administrator),
+                    or paste the command again.</li>
+                <li>Check a desk with <code>C:\koha-rfid\install_agent.ps1 -Status</code>.</li>
+            </ul>
+            <p class="hint">Files, if you need them by hand:
+                [% FOREACH f IN agent_files %]<a href="[% static_base | html %]/[% f | uri %]">[% f | html %]</a>[% UNLESS loop.last %] &middot; [% END %][% END %]
+            </p>
+            <script>
+            (function () {
+                // $k is the staff address exactly as this browser sees it: the agent
+                // only answers pages from that address (allowed_origins).
+                var cmd = "[Net.ServicePointManager]::SecurityProtocol='Tls12'; $k='" + location.origin + "'; "
+                        + "iwr -UseBasicParsing \"$k[% static_base | html %]/install_agent.ps1\" -OutFile \"$env:TEMP\\install_agent.ps1\"; "
+                        + "powershell -NoProfile -ExecutionPolicy Bypass -File \"$env:TEMP\\install_agent.ps1\" -Koha $k";
+                var pre = document.getElementById("rfid-setup-command");
+                pre.textContent = cmd;
+                document.getElementById("rfid-setup-copy").addEventListener("click", function () {
+                    var done = function () { document.getElementById("rfid-setup-copied").style.display = "inline"; };
+                    if (navigator.clipboard && window.isSecureContext) {
+                        navigator.clipboard.writeText(cmd).then(done);
+                    } else {   // plain http: select the text and copy it the old way
+                        var range = document.createRange();
+                        range.selectNodeContents(pre);
+                        var sel = window.getSelection();
+                        sel.removeAllRanges();
+                        sel.addRange(range);
+                        if (document.execCommand("copy")) { done(); }
+                    }
+                });
+            })();
+            </script>
+            [% ELSE %]
+            <div class="dialog alert">This copy of the plugin doesn't carry the desk agent. Build the plugin with
+                <code>python deploy/build_plugin.py</code> and upload that <code>.kpz</code>, then restart plack.</div>
+            [% END %]
         </div>
     </div>
 </div>

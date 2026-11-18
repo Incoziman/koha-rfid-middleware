@@ -85,6 +85,13 @@ sub configure {
 
     my $template = $self->get_template( { file => 'configure.tt' } );
     $template->param( map { $_ => $self->setting($_) } keys %DEFAULTS );
+    # "Set up a desk PC": the files the .kpz carries for the desk agent.
+    my @agent_files = sort map { m{^/agent/(.+)$} ? $1 : () } keys %{ $self->static_routes };
+    $template->param(
+        plugin_version => $VERSION,
+        static_base    => '/api/v1/contrib/' . $self->api_namespace . '/static/agent',
+        agent_files    => \@agent_files,
+    );
     return $self->output_html( $template->output() );
 }
 
@@ -112,6 +119,16 @@ sub api_namespace { return 'rfiddesk' }
 sub api_routes {
     my ($self) = @_;
     return decode_json( $self->mbf_read('openapi.json') );
+}
+
+# Public downloads for desk PCs: the agent wheel, its installer and the example
+# agent.ini, at /api/v1/contrib/rfiddesk/static/agent/<file>. No login, so the
+# installer can fetch them. deploy/build_plugin.py writes staticapi.json; it is
+# missing in a plain checkout of the repo.
+sub static_routes {
+    my ($self) = @_;
+    return {} unless -f $self->mbf_path('staticapi.json');
+    return decode_json( $self->mbf_read('staticapi.json') );
 }
 
 1;

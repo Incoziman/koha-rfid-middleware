@@ -4,7 +4,8 @@
 - the Perl modules compile (perl, if installed) against small stand-ins for
   the Koha and Mojolicious modules they use
 - every REST route points at a controller method that exists
-- the .kpz builds with the files Koha needs
+- the .kpz builds with the files Koha needs, and carries the desk agent
+- the desk installer script parses (PowerShell, if installed)
 """
 import json
 import os
@@ -61,12 +62,73 @@ class Plugin(unittest.TestCase):
                                                       os.path.join(ROOT, "deploy", "build_plugin.py"))
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
-        with tempfile.TemporaryDirectory() as d:
-            with zipfile.ZipFile(mod.build(d)) as z:
-                names = set(z.namelist())
         base = "Koha/Plugin/Org/Middelburg/RFIDDesk"
-        for f in (".pm", "/Controller.pm", "/openapi.json", "/rfid-desk.js", "/configure.tt"):
+        with tempfile.TemporaryDirectory() as d:
+            try:
+                kpz = mod.build(d)
+            except RuntimeError as e:      # pip wheel: e.g. offline with an empty pip cache
+                self.skipTest(f"could not build the agent wheel: {e}")
+            with zipfile.ZipFile(kpz) as z:
+                names = set(z.namelist())
+                static = json.loads(z.read(base + "/staticapi.json"))
+                installer = z.read(base + "/agent/install_agent.ps1").decode("utf-8-sig")
+                wheel_name = f"koha_rfid_middleware-{__version__}-py3-none-any.whl"
+                wheel_path = os.path.join(d, wheel_name)
+                with open(wheel_path, "wb") as fh:
+                    fh.write(z.read(f"{base}/agent/{wheel_name}"))
+            with zipfile.ZipFile(wheel_path) as w:
+                wheel_files = set(w.namelist())
+                metadata = w.read(f"koha_rfid_middleware-{__version__}.dist-info/METADATA").decode()
+
+        for f in (".pm", "/Controller.pm", "/openapi.json", "/rfid-desk.js", "/configure.tt", "/staticapi.json"):
             self.assertIn(base + f, names)
+
+        # Every agent file is served without a login, and every route has its file.
+        agent_files = {wheel_name, "install_agent.ps1", "agent.example.ini"}
+        self.assertEqual(set(static), {"/agent/" + f for f in agent_files})
+        for route, ops in static.items():
+            self.assertIn(base + route, names)
+            self.assertEqual(ops["get"]["x-mojo-to"], "Static#get")
+            self.assertNotIn("x-koha-authorization", ops["get"])
+
+        # The installer knows which wheel to download.
+        self.assertIn(f"$BundledWheel = '{wheel_name}'", installer)
+
+        self.assertIn("koha_rfid/agent/__main__.py", wheel_files)
+        self.assertRegex(metadata, r"Requires-Dist: sllurp==2\.0\.1; extra == .reader.")
+
+    @unittest.skipUnless(shutil.which("powershell") or shutil.which("pwsh"), "PowerShell not installed")
+    def test_installer_parses(self):
+        ps1 = os.path.join(ROOT, "deploy", "install_agent.ps1")
+        check = ("$e = $null; [void][System.Management.Automation.Language.Parser]::ParseFile("
+                 f"'{ps1}', [ref]$null, [ref]$e); $e | ForEach-Object {{ $_.ToString() }}; exit $e.Count")
+        r = subprocess.run([shutil.which("powershell") or shutil.which("pwsh"), "-NoProfile", "-Command", check],
+                           capture_output=True, text=True, timeout=120)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        with open(ps1, encoding="utf-8") as fh:
+            self.assertRegex(fh.read(), r"(?m)^\$BundledWheel = ''$")   # build_plugin.py fills this in
+
+    @unittest.skipUnless(shutil.which("powershell") or shutil.which("pwsh"), "PowerShell not installed")
+    def test_installer_functions_dont_leak_output(self):
+        # A PowerShell function returns everything it doesn't capture. An
+        # uncaptured "& winget ..." made Get-Python return winget's progress
+        # lines along with the python.exe path, and the install failed.
+        # Every "& command" inside a function must be assigned or piped.
+        ps1 = os.path.join(ROOT, "deploy", "install_agent.ps1")
+        check = (
+            "$ast = [System.Management.Automation.Language.Parser]::ParseFile("
+            f"'{ps1}', [ref]$null, [ref]$null); $bad = @();"
+            " foreach ($fn in $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)) {"
+            "  foreach ($c in $fn.Body.FindAll({ $args[0] -is [System.Management.Automation.Language.CommandAst] -and"
+            "      $args[0].InvocationOperator -eq 'Ampersand' }, $true)) {"
+            "   $ok = $c.Parent.PipelineElements.Count -gt 1; $p = $c.Parent;"
+            "   while (-not $ok -and $p -and $p -ne $fn) {"
+            "    if ($p -is [System.Management.Automation.Language.AssignmentStatementAst]) { $ok = $true }; $p = $p.Parent }"
+            "   if (-not $ok) { $bad += \"$($fn.Name) line $($c.Extent.StartLineNumber): $($c.Extent.Text)\" } } }"
+            " $bad; exit $bad.Count")
+        r = subprocess.run([shutil.which("powershell") or shutil.which("pwsh"), "-NoProfile", "-Command", check],
+                           capture_output=True, text=True, timeout=120)
+        self.assertEqual(r.returncode, 0, "uncaptured output in a function:\n" + r.stdout + r.stderr)
 
     @unittest.skipUnless(shutil.which("node"), "node not installed")
     def test_page_script(self):
