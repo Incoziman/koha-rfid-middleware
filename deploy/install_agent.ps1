@@ -72,6 +72,8 @@ $TaskName = 'Koha RFID agent'
 $Repo = Split-Path -Parent $PSScriptRoot
 $Ini = Join-Path $InstallDir 'agent.ini'
 $StaticPath = '/api/v1/contrib/rfiddesk/static/agent'
+# The ZD500R's usual address here; '1' at the printer question (or -PrinterHost 1) picks it.
+$ZebraDefault = '192.168.1.2'
 
 function Test-Admin {
     $p = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
@@ -137,13 +139,19 @@ function New-AgentIni([string]$Example) {
         Ask 'R220 reader IP address' (Get-IniValue $Ini 'reader' 'host')
     }
     $pw = if ($Given -contains 'Power') { $Power } else {
-        Ask 'Pad power (index from the field test; 0 = max)' (Get-IniValue $Ini 'reader' 'power')
+        Ask 'Pad power (index from the field test; 0 = max 32.5 dBm, 21 = 15 dBm, 41 = 20 dBm)' (Get-IniValue $Ini 'reader' 'power')
     }
     if (-not $pw -or $pw -eq 'none') { $pw = Get-IniValue $Ini 'reader' 'power' }
     if ($pw -notmatch '^\d+$') { Remove-Item $Ini; throw "Pad power must be a whole number, not '$pw'." }
     $ph = if ($Given -contains 'PrinterHost') { $PrinterHost } else {
-        Ask 'ZD500R label printer IP address (only on desks that print labels)' (Get-IniValue $Ini 'printer' 'host')
+        $d = Get-IniValue $Ini 'printer' 'host'
+        $shown = if ($d) { $d } else { 'none' }
+        try {
+            $a = Read-Host "ZD500R label printer IP address, only on desks that print labels [Enter = $shown, 1 = $ZebraDefault (Zebra default), or type an IP]"
+        } catch { $a = '' }
+        if ([string]::IsNullOrWhiteSpace($a)) { $d } else { $a.Trim() }
     }
+    if ($ph -eq '1') { $ph = $ZebraDefault }
     if ($rh -eq 'none') { $rh = '' }
     if ($ph -eq 'none') { $ph = '' }
     Set-IniValue $Ini 'agent' 'allowed_origins' $origin

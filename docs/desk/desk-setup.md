@@ -61,13 +61,20 @@ The desk PC doesn't need the repo. Everything comes from the plugin on the Koha 
    - The first time, it asks for:
      - the R220's IP address;
      - the **pad power** from the field test ([`../testing/field-test.md`](../testing/field-test.md#3-tune-the-pad)), low enough that books 1 m away aren't read;
-     - the ZD500R's IP address, only on desks that print labels.
+     - the ZD500R's IP address, only on desks that print labels. Type `1` for `192.168.1.2`, the usual Zebra address.
 
      Press Enter to keep the value shown, or type `none` to leave it empty. `allowed_origins` is set to the Koha address from the command.
    - It registers the **Koha RFID agent** Scheduled Task, which starts at boot, runs hidden, and is re-checked every 5 minutes. It then starts the agent and shows its status.
 3. **Check it.** The installer ends by showing the reader as connected. In Koha, open a patron's Check out page: the RFID pad panel has a green dot.
 
-**Managing a desk PC.** Run these in PowerShell as administrator:
+**Managing a desk PC from Koha.** On the desk PC, open the plugin's **Configure** page (Manage plugins → RFID desk → Actions → Configure). The **This desk PC** section talks to the agent on that PC and shows:
+- the agent version, whether the reader is connected (and the error if not), the label printer, and the settings file;
+- **On the pad now**: the library tags the reader sees, updated every second. Use it to tune the pad power: lower it until books about 1 m from the pad are no longer listed;
+- the reader and printer settings: IP addresses, pad power (with a table of what each index means in dBm), antennas, pad memory, reconnect interval, session and ports. **Save to this desk's agent** writes them to `C:\koha-rfid\agent.ini` and applies them at once: the reader reconnects, with no restart. **Reconnect reader** drops and reconnects the reader.
+
+The page shows the agent of the PC it is opened on, because the agent only answers on that PC. `listen_port` and `allowed_origins` can't be changed from Koha, since a wrong value would cut the page off from the agent. Change those in `agent.ini`, then `-Restart`.
+
+**Managing a desk PC from PowerShell.** Run these in PowerShell as administrator:
 
 | Command | What it does |
 |---|---|
@@ -84,7 +91,7 @@ If PowerShell refuses to run the script, put `powershell -ExecutionPolicy Bypass
 - `[reader] host`, `power`: the R220's IP address and the pad power.
 - `[printer] host`: the ZD500R's IP address, or empty.
 
-After changing it, run `-Restart`.
+Change the `[reader]` and `[printer]` settings on the Configure page (above). After editing the file by hand, run `-Restart`.
 
 **Development PC with the repo:** `powershell -ExecutionPolicy Bypass -File deploy\install_agent.ps1` installs the agent from the working copy instead of from Koha.
 
@@ -115,11 +122,12 @@ After changing it, run `-Restart`.
 | Setup command: TLS or certificate error | The staff interface uses a certificate Windows doesn't trust (self-signed) | Install the certificate on the PC, or use a trusted certificate on the server |
 | Setup command: "pip install failed" | No internet on the desk PC, or a proxy | The Python packages come from PyPI. Allow the PC out to pypi.org and files.pythonhosted.org, then run the command again |
 | Amber dot: "reader not connected" | R220 off, unplugged, or busy with another program | Switch on or plug in the R220; the agent reconnects within 10 s. Only one program can use the R220: `-Pause` the agent before running the `testing\` scripts, then `-Resume` |
-| Books on the pad aren't listed | Too far from the antenna, tag on metal, or power set too low | Move the books closer or flat on the pad; check `power` in `agent.ini` |
-| Books from the trolley or the next patron are listed | Power too high | Lower `power` in `agent.ini`, then `-Restart` |
+| Books on the pad aren't listed | Too far from the antenna, tag on metal, or power set too low | Move the books closer or flat on the pad; check the pad power on the Configure page (This desk PC) |
+| Books from the trolley or the next patron are listed | Power too high | Lower the pad power on the Configure page (This desk PC), watching **On the pad now** |
+| Configure page: "running on this PC but refuses this page" | `allowed_origins` doesn't match the Koha address | Fix `allowed_origins` in `agent.ini`, then `-Restart` |
 | "Could not look items up in Koha: Koha API 401/403" | Logged out, or no `circulate` permission | Log in again; check permissions |
 | "Koha API 404" | Plugin not loaded by the REST API | `sudo koha-plack --restart middelburg` |
-| Labels: "no label printer configured on this desk" | `[printer] host` empty | Set it in `agent.ini`, then `-Restart` |
+| Labels: "no label printer configured on this desk" | `[printer] host` empty | Set the printer on the Configure page (This desk PC), on that desk PC |
 | Labels: MISMATCH / NO REPLY | The tag write failed, or the label isn't calibrated | Void the label and reprint. For a new roll, run RFID calibration (`^HR`, see [`../reference/barcode-format.md`](../reference/barcode-format.md#printing-test-rfid-labels-zebra-zd500r)) |
 
 The agent's log is `C:\koha-rfid\agent.log`.
