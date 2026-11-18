@@ -85,3 +85,14 @@ test("verify checks Koha's final state", () => {
     assert.deepEqual(rd.verify("checkout", ["a", "b", "c"], lookup, "64"), { ok: ["a"], notOk: ["b", "c"] });
     assert.deepEqual(rd.verify("checkin", ["a", "b"], lookup), { ok: ["b"], notOk: ["a"] });
 });
+
+test("panel only shows on a PC that uses RFID", () => {
+    const now = 1e12, day = 24 * 60 * 60 * 1000;
+    assert.equal(rd.panelVisible(null, null, false, now), false);          // never seen, first poll pending
+    assert.equal(rd.panelVisible(false, null, false, now), false);         // no agent installed
+    assert.equal(rd.panelVisible(true, null, false, now), true);           // agent answers
+    assert.equal(rd.panelVisible(false, String(now - day), false, now), true);   // agent stopped: say so
+    assert.equal(rd.panelVisible(false, String(now - rd.SEEN_MAX_AGE_MS - 1), false, now), false);
+    assert.equal(rd.panelVisible(false, "junk", false, now), false);
+    assert.equal(rd.panelVisible(false, null, true, now), true);           // queue running
+});

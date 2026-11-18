@@ -18,7 +18,7 @@ This is the production setup for staff circulation. Librarians check books out a
 ```
 
 - **The agent** runs in the background on each desk PC from boot. Nobody starts it by hand. It owns the reader and the printer, and answers only on the PC itself (127.0.0.1) and only to the Koha staff address in its config.
-- **The plugin** adds a panel to Koha's Check out and Check in pages. The panel asks the agent what's on the pad and looks the barcodes up in Koha. When the librarian clicks **Check out N books**, it types each barcode into Koha's own barcode box, one at a time. Everything Koha normally does happens as usual: circulation rules, holds questions, fines warnings, slips, logs.
+- **The plugin** adds a panel to Koha's Check out and Check in pages. The panel asks the agent what's on the pad and looks the barcodes up in Koha. When the librarian clicks **Check out N books**, it types each barcode into Koha's own barcode box, one at a time. Everything Koha normally does happens as usual: circulation rules, holds questions, fines warnings, slips, logs. The panel only appears on PCs whose browser has reached the agent at least once (in the last 30 days), so desks without RFID see Koha's pages unchanged.
 - **Nothing is written to the tags** at check-out or check-in. "Checked out" lives only in Koha. A security gate would ask Koha; see [`../reference/uhf-rfid.md`](../reference/uhf-rfid.md#security-checked-out-or-not).
 
 ## 1. Koha server: once
@@ -87,7 +87,7 @@ The page shows the agent of the PC it is opened on, because the agent only answe
 If PowerShell refuses to run the script, put `powershell -ExecutionPolicy Bypass -File` in front of it.
 
 **Settings** are in `C:\koha-rfid\agent.ini`:
-- `allowed_origins`: the staff interface address exactly as the browser shows it, e.g. `https://staff.library.example` or `http://debian.mshome.net:8082`. **If this is wrong, the panel shows "agent not running".**
+- `allowed_origins`: the staff interface address exactly as the browser shows it, e.g. `https://staff.library.example` or `http://debian.mshome.net:8082`. **If this is wrong, the panel shows "agent not running"**, or doesn't appear at all on a desk that has never reached the agent.
 - `[reader] host`, `power`: the R220's IP address and the pad power.
 - `[printer] host`: the ZD500R's IP address, or empty.
 
@@ -118,6 +118,7 @@ Change the `[reader]` and `[printer]` settings on the Configure page (above). Af
 | What you see | Cause | Fix |
 |---|---|---|
 | Grey dot: "RFID agent not running on this PC" | Agent stopped, **or** `allowed_origins` doesn't match the Koha address | `C:\koha-rfid\install_agent.ps1 -Status`. If it's running, fix `allowed_origins` (scheme, host and port exactly as in the address bar) and `-Restart`. Restarting the PC also starts it |
+| No RFID pad panel at all on Check out / Check in | This browser has never reached the agent: not installed, stopped, **or** `allowed_origins` doesn't match the Koha address | Same as above. The panel appears within 15 s of the agent answering (or reload the page) |
 | Setup command: "Download failed … 404" | Plack wasn't restarted after uploading the plugin, or the `.kpz` was built without the agent | `sudo koha-plack --restart middelburg`. The plugin's Configure page warns when the `.kpz` doesn't carry the agent |
 | Setup command: TLS or certificate error | The staff interface uses a certificate Windows doesn't trust (self-signed) | Install the certificate on the PC, or use a trusted certificate on the server |
 | Setup command: "pip install failed" | No internet on the desk PC, or a proxy | The Python packages come from PyPI. Allow the PC out to pypi.org and files.pythonhosted.org, then run the command again |
