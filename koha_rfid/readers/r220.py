@@ -1,8 +1,8 @@
-"""Reader adapters. Each one hands raw EPC hex strings to a callback.
+"""Impinj Speedway R220 over LLRP.
 
-This is the only module that knows about the reader hardware (docs/reference/uhf-rfid.md,
-"Side note: cheaper hardware"). A desktop USB reader would get its own class
-here with the same start()/stop() shape; nothing downstream changes.
+Roles (docs/hardware/README.md): the test reader for the desk agent
+(`[reader] type = r220`), and the reader for large-scale stocktake
+(koha_rfid.stocktake). Too expensive for every desk in a wide rollout.
 
 R220Reader needs `pip install sllurp==2.0.1` (the version step 1 was tested
 with). sllurp is imported only when an R220Reader is created, so the rest of
@@ -12,9 +12,9 @@ the package stays standard-library only.
 from __future__ import annotations
 
 import threading
-from typing import Callable, Iterable
+from typing import Iterable
 
-EpcCallback = Callable[[str, int, int], None]   # (epc_hex, antenna, rssi)
+from . import EpcCallback
 
 
 def _epc_hex(v) -> str:
@@ -82,40 +82,6 @@ class R220Reader:
     def is_alive(self) -> bool:
         """False once the LLRP connection thread has ended (reader gone, cable out)."""
         return self._client.is_alive()
-
-
-class FakeReader:
-    """Pretends the given EPCs are on the pad, reporting each every `interval` s.
-
-    Same start()/stop()/is_alive() shape as R220Reader. Used by the tests, and by
-    the desk agent's `fake_epcs` setting to work on the Koha plugin without the
-    R220 (which only allows one LLRP client at a time).
-    """
-
-    def __init__(self, on_epc: EpcCallback, epcs: Iterable[str] = (), interval: float = 0.5,
-                 antenna: int = 1, rssi: int = -40):
-        self._on_epc = on_epc
-        self.epcs = list(epcs)
-        self.interval, self.antenna, self.rssi = interval, antenna, rssi
-        self._stop = threading.Event()
-        self._thread = None
-
-    def start(self, timeout: float = 15.0) -> None:
-        self._stop.clear()
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
-
-    def _run(self) -> None:
-        while not self._stop.is_set():
-            for epc in list(self.epcs):
-                self._on_epc(epc, self.antenna, self.rssi)
-            self._stop.wait(self.interval)
-
-    def stop(self) -> None:
-        self._stop.set()
-
-    def is_alive(self) -> bool:
-        return bool(self._thread and self._thread.is_alive())
 
 
 def collect_epcs(host: str, seconds: float = 3.0, **kwargs) -> dict:

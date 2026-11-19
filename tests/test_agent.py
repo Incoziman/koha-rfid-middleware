@@ -9,7 +9,7 @@ import urllib.request
 from koha_rfid.agent import config
 from koha_rfid.agent.pad import PadState, ReaderRunner
 from koha_rfid.agent.server import Agent
-from koha_rfid.reader import FakeReader
+from koha_rfid.readers.fake import FakeReader
 from tests.test_labels import FakePrinter
 
 KOHA = "http://debian.mshome.net:8082"
@@ -259,6 +259,42 @@ class Config(unittest.TestCase):
         with self.assertRaises(config.ConfigError) as cm:
             config.validate_changes({"reader": {"power": 99}})
         self.assertEqual(cm.exception.field, "reader.power")
+
+    def test_reader_type_defaults_to_r220(self):
+        # agent.ini files from before reader types existed have no `type`
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "agent.ini")
+            with open(p, "w", encoding="utf-8") as fh:
+                fh.write("[reader]\nhost = 192.168.1.3\n")
+            self.assertEqual(config.load(p).reader_type, "r220")
+            with open(p, "w", encoding="utf-8") as fh:
+                fh.write("[reader]\ntype = CF606\n")
+            with self.assertRaises(ValueError):
+                config.load(p)
+
+    def test_chafon_settings(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "agent.ini")
+            with open(p, "w", encoding="utf-8", newline="") as fh:
+                fh.write(EXAMPLE)
+            config.save_changes(p, config.validate_changes(
+                {"reader": {"type": "Chafon", "serial_port": "com4", "baud": "115200",
+                            "power_dbm": 12}}))
+            c = config.load(p)
+        self.assertEqual((c.reader_type, c.serial_port, c.baud, c.power_dbm),
+                         ("chafon", "COM4", 115200, 12))
+        self.assertEqual(c.reader_host, "192.168.1.3")             # R220 settings kept
+        self.assertEqual(config.editable_values(c)["reader"]["serial_port"], "COM4")
+
+    def test_chafon_validation(self):
+        for body in ({"reader": {"type": "cf606"}}, {"reader": {"type": ""}},
+                     {"reader": {"power_dbm": 4}}, {"reader": {"power_dbm": 27}},
+                     {"reader": {"serial_port": "C:\\x"}}, {"reader": {"serial_port": "COM3; x"}},
+                     {"reader": {"baud": 1234}}, {"reader": {"baud": True}}):
+            with self.assertRaises(config.ConfigError, msg=repr(body)):
+                config.validate_changes(body)
+        ok = config.validate_changes({"reader": {"serial_port": "", "power_dbm": 26, "baud": 57600}})
+        self.assertEqual(ok[("reader", "serial_port")], "")
 
 
 EXAMPLE = (

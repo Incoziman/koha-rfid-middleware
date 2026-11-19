@@ -4,6 +4,12 @@ This is the production setup for staff circulation. Librarians check books out a
 
 (Patron self-check over SIP2 is a separate feature: see [`../selfcheck/selfcheck-sip2.md`](../selfcheck/selfcheck-sip2.md).)
 
+**Readers.** The agent supports two reader types, set with `[reader] type` ([`../hardware/README.md`](../hardware/README.md)):
+- `r220`: the Impinj R220 on the network. This is the reader everything has been tested with. It costs too much to put on every desk.
+- `chafon`: the Chafon CF606 USB desktop reader, the likely cheap desk reader for a wide rollout.
+
+> **⚠ The Chafon CF606 is a candidate only.** It is **not confirmed for any implementation**, has not been tested, and its driver has not been written. With `type = chafon` the agent shows the reader as not connected. See [`../hardware/chafon-cf606.md`](../hardware/chafon-cf606.md).
+
 ```
  desk PC                                                       Koha server
 ┌───────────────────────────────────────────────┐          ┌──────────────────────────┐
@@ -12,7 +18,7 @@ This is the production setup for staff circulation. Librarians check books out a
 │        │ http://127.0.0.1:8765                │          │  - /api/v1/contrib/      │
 │        ▼                                      │          │    rfiddesk (look-ups)   │
 │ koha-rfid desk agent (Scheduled Task, SYSTEM) │          └──────────────────────────┘
-│   - R220 reader (LLRP) ───────────────────────┼──► R220 + antenna (the pad)
+│   - reader: R220 (LLRP) / CF606 (USB) ────────┼──► R220 + antenna, or CF606 (the pad)
 │   - ZD500R printer (port 9100) ───────────────┼──► label printer
 └───────────────────────────────────────────────┘
 ```
@@ -59,8 +65,9 @@ The desk PC doesn't need the repo. Everything comes from the plugin on the Koha 
    - If Python 3.12 isn't installed, it installs it for all users with `winget`. On a PC without `winget`, first install Python 3.12 from python.org with **Install for all users** ticked. Don't use the Microsoft Store Python.
    - It downloads the agent from Koha and installs it, with its Python packages from the internet, into `C:\koha-rfid\`: its own Python environment, `agent.ini`, `agent.log` and a copy of the installer, `install_agent.ps1`.
    - The first time, it asks for:
-     - the R220's IP address;
-     - the **pad power** from the field test ([`../testing/field-test.md`](../testing/field-test.md#3-tune-the-pad)), low enough that books 1 m away aren't read;
+     - the **reader type**: `r220` (Enter) or `chafon` (not confirmed, see above);
+     - for the R220, its IP address; for the CF606, its COM port (Device Manager → Ports);
+     - the **pad power** from the field test ([`../testing/field-test.md`](../testing/field-test.md#3-tune-the-pad)), low enough that books 1 m away aren't read. For the R220 it's an index into its power table, for the CF606 it's dBm (5–26);
      - the ZD500R's IP address, only on desks that print labels. Type `1` for `192.168.1.2`, the usual Zebra address.
 
      Press Enter to keep the value shown, or type `none` to leave it empty. `allowed_origins` is set to the Koha address from the command.
@@ -70,7 +77,7 @@ The desk PC doesn't need the repo. Everything comes from the plugin on the Koha 
 **Managing a desk PC from Koha.** On the desk PC, open the plugin's **Configure** page (Manage plugins → RFID desk → Actions → Configure). The **This desk PC** section talks to the agent on that PC and shows:
 - the agent version, whether the reader is connected (and the error if not), the label printer, and the settings file;
 - **On the pad now**: the library tags the reader sees, updated every second. Use it to tune the pad power: lower it until books about 1 m from the pad are no longer listed;
-- the reader and printer settings: IP addresses, pad power (with a table of what each index means in dBm), antennas, pad memory, reconnect interval, session and ports. **Save to this desk's agent** writes them to `C:\koha-rfid\agent.ini` and applies them at once: the reader reconnects, with no restart. **Reconnect reader** drops and reconnects the reader.
+- the reader and printer settings. **Reader** picks the type, and only that type's settings are shown. For the R220: IP address, pad power (with a table of what each index means in dBm), antennas, session and LLRP port. For the Chafon CF606 (with the "not confirmed" warning): COM port, pad power in dBm and baud rate. For both: pad memory and reconnect interval. Then the printer's address and port. **Save to this desk's agent** writes them to `C:\koha-rfid\agent.ini` and applies them at once: the reader reconnects, with no restart. **Reconnect reader** drops and reconnects the reader.
 
 The page shows the agent of the PC it is opened on, because the agent only answers on that PC. `listen_port` and `allowed_origins` can't be changed from Koha, since a wrong value would cut the page off from the agent. Change those in `agent.ini`, then `-Restart`.
 
@@ -81,14 +88,16 @@ The page shows the agent of the PC it is opened on, because the agent only answe
 | `C:\koha-rfid\install_agent.ps1 -Status` | Shows whether the agent is running, and the reader and printer |
 | `C:\koha-rfid\install_agent.ps1 -Restart` | Restarts the agent after editing `C:\koha-rfid\agent.ini` |
 | `C:\koha-rfid\install_agent.ps1 -Update` | After a plugin upgrade on the server: installs the agent version now in Koha. Keeps `agent.ini` |
-| `C:\koha-rfid\install_agent.ps1 -Pause` / `-Resume` | Stops the agent and frees the R220 for the `testing\` scripts, then starts it again |
+| `C:\koha-rfid\install_agent.ps1 -Pause` / `-Resume` | Stops the agent and frees the R220 for the `testing\` scripts or a [stocktake](../stocktake/stocktake.md), then starts it again |
 | `C:\koha-rfid\install_agent.ps1 -Uninstall` | Removes the Scheduled Task. Delete `C:\koha-rfid\` by hand |
 
 If PowerShell refuses to run the script, put `powershell -ExecutionPolicy Bypass -File` in front of it.
 
 **Settings** are in `C:\koha-rfid\agent.ini`:
 - `allowed_origins`: the staff interface address exactly as the browser shows it, e.g. `https://staff.library.example` or `http://debian.mshome.net:8082`. **If this is wrong, the panel shows "agent not running"**, or doesn't appear at all on a desk that has never reached the agent.
-- `[reader] host`, `power`: the R220's IP address and the pad power.
+- `[reader] type`: `r220` or `chafon`. A file without it means `r220`.
+- `[reader] host`, `power`: the R220's IP address and the pad power (power-table index).
+- `[reader] serial_port`, `power_dbm`, `baud`: the Chafon CF606's COM port, pad power in dBm and baud rate (**not confirmed**, no driver yet).
 - `[printer] host`: the ZD500R's IP address, or empty.
 
 Change the `[reader]` and `[printer]` settings on the Configure page (above). After editing the file by hand, run `-Restart`.

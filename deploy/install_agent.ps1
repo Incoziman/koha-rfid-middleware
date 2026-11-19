@@ -13,9 +13,9 @@ Run it from an elevated (Run as administrator) PowerShell. It:
   2. downloads the agent package from the RFID desk plugin on the Koha server
      (-Koha / -Update), or installs it from the repo this script is in,
   3. creates C:\koha-rfid\ with its own Python venv and installs the agent
-     (with sllurp for the R220, from PyPI),
+     (with sllurp for the Impinj R220, from PyPI),
   4. creates C:\koha-rfid\agent.ini the first time only: it asks for the
-     reader address, pad power and printer address,
+     reader type, the reader address (or COM port), pad power and printer address,
   5. copies itself to C:\koha-rfid\install_agent.ps1 for the actions below,
   6. registers the Scheduled Task "Koha RFID agent": starts at boot, runs
      hidden as SYSTEM with no login needed, and is re-checked every 5 minutes
@@ -24,6 +24,11 @@ Run it from an elevated (Run as administrator) PowerShell. It:
 
 The agent itself reconnects to the reader when it's switched off or unplugged.
 
+Reader types: r220 (Impinj R220 on the network, the test reader) or chafon
+(Chafon CF606 on USB). The Chafon CF606 is a candidate only: it is NOT
+confirmed for any implementation, has not been tested, and its driver has not
+been written, so with type chafon the agent reports the reader as not connected.
+
 Other actions (C:\koha-rfid\install_agent.ps1 <action>):
   -Update    download and install the agent version now on the Koha server
              (the address is the first allowed_origins entry in agent.ini).
@@ -31,7 +36,7 @@ Other actions (C:\koha-rfid\install_agent.ps1 <action>):
   -Status    show the task and the agent's /status
   -Restart   restart after editing agent.ini
   -Pause     stop and disable the agent, e.g. to free the R220 for the
-             testing\ scripts (the R220 allows only one connection)
+             testing\ scripts or a stocktake (it allows only one connection)
   -Resume    enable and start it again
   -Uninstall remove the task (C:\koha-rfid\ is left; delete it by hand)
 
@@ -53,7 +58,11 @@ param(
     [Parameter(ParameterSetName = 'Install')][Parameter(ParameterSetName = 'Update')][string]$Python,
     [Parameter(ParameterSetName = 'Install')][Parameter(ParameterSetName = 'Update')][switch]$NoTask,
     # First install only; asked for when not given. 'none' leaves it empty.
+    # -ReaderType r220 (default) or chafon. -Power is the R220 power-table index,
+    # or dBm (5-26) for chafon. -SerialPort (e.g. COM3) is for chafon only.
+    [Parameter(ParameterSetName = 'Install')][string]$ReaderType,
     [Parameter(ParameterSetName = 'Install')][string]$ReaderHost,
+    [Parameter(ParameterSetName = 'Install')][string]$SerialPort,
     [Parameter(ParameterSetName = 'Install')][string]$Power,
     [Parameter(ParameterSetName = 'Install')][string]$PrinterHost,
     [string]$InstallDir = 'C:\koha-rfid',
@@ -74,6 +83,7 @@ $Ini = Join-Path $InstallDir 'agent.ini'
 $StaticPath = '/api/v1/contrib/rfiddesk/static/agent'
 # The ZD500R's usual address here; '1' at the printer question (or -PrinterHost 1) picks it.
 $ZebraDefault = '192.168.1.2'
+$ChafonWarning = 'The Chafon CF606 is a candidate only: it is NOT confirmed for any implementation, has not been tested, and its driver has not been written. The agent will report the reader as not connected. See docs/hardware/chafon-cf606.md.'
 
 function Test-Admin {
     $p = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
@@ -94,16 +104,20 @@ function Get-IniValue([string]$Path, [string]$Section, [string]$Key) {
     return $null
 }
 
+# Sets "key = value" in a section. A key that is only there commented out
+# ("; key = ...") is uncommented and set.
 function Set-IniValue([string]$Path, [string]$Section, [string]$Key, [string]$Value) {
     $lines = [IO.File]::ReadAllLines($Path)
-    $in = $false
-    for ($i = 0; $i -lt $lines.Length; $i++) {
-        if ($lines[$i] -match '^\s*\[(.+?)\]') { $in = ($Matches[1].Trim() -eq $Section); continue }
-        if ($in -and $lines[$i] -match "^\s*$([regex]::Escape($Key))\s*=") {
-            $lines[$i] = if ($Value) { "$Key = $Value" } else { "$Key =" }
-            # UTF-8 without a BOM: the agent's configparser doesn't expect one.
-            [IO.File]::WriteAllLines($Path, $lines)
-            return
+    foreach ($pattern in @("^\s*$([regex]::Escape($Key))\s*=", "^\s*;\s*$([regex]::Escape($Key))\s*=")) {
+        $in = $false
+        for ($i = 0; $i -lt $lines.Length; $i++) {
+            if ($lines[$i] -match '^\s*\[(.+?)\]') { $in = ($Matches[1].Trim() -eq $Section); continue }
+            if ($in -and $lines[$i] -match $pattern) {
+                $lines[$i] = if ($Value) { "$Key = $Value" } else { "$Key =" }
+                # UTF-8 without a BOM: the agent's configparser doesn't expect one.
+                [IO.File]::WriteAllLines($Path, $lines)
+                return
+            }
         }
     }
     throw "No '$Key' in [$Section] of $Path"
@@ -135,14 +149,32 @@ function New-AgentIni([string]$Example) {
     $origin = if ($Koha) { $Koha } else {
         Ask 'Koha staff interface address, as in the browser address bar' (Get-IniValue $Ini 'agent' 'allowed_origins')
     }
-    $rh = if ($Given -contains 'ReaderHost') { $ReaderHost } else {
-        Ask 'R220 reader IP address' (Get-IniValue $Ini 'reader' 'host')
+    $rt = if ($Given -contains 'ReaderType') { $ReaderType } else {
+        Ask 'Reader type: r220 (Impinj R220, network) or chafon (Chafon CF606, USB: NOT confirmed, no driver yet)' (Get-IniValue $Ini 'reader' 'type')
     }
-    $pw = if ($Given -contains 'Power') { $Power } else {
-        Ask 'Pad power (index from the field test; 0 = max 32.5 dBm, 21 = 15 dBm, 41 = 20 dBm)' (Get-IniValue $Ini 'reader' 'power')
+    $rt = "$rt".Trim().ToLower()
+    if (-not $rt -or $rt -eq 'none') { $rt = 'r220' }
+    if (@('r220', 'chafon') -notcontains $rt) { Remove-Item $Ini; throw "Reader type must be r220 or chafon, not '$rt'." }
+    if ($rt -eq 'chafon') {
+        Write-Warning $ChafonWarning
+        $sp = if ($Given -contains 'SerialPort') { $SerialPort } else {
+            Ask 'Chafon CF606 COM port (Device Manager > Ports), e.g. COM3' (Get-IniValue $Ini 'reader' 'serial_port')
+        }
+        if ($sp -eq 'none') { $sp = '' }
+        if ($sp -and $sp -notmatch '^COM\d{1,3}$') { Remove-Item $Ini; throw "The COM port must look like COM3, not '$sp'." }
+        $pw = if ($Given -contains 'Power') { $Power } else { Ask 'Pad power in dBm (5-26)' '20' }
+        if (-not $pw -or $pw -eq 'none') { $pw = '20' }
+        if ($pw -notmatch '^\d+$' -or [int]$pw -lt 5 -or [int]$pw -gt 26) { Remove-Item $Ini; throw "Pad power must be 5-26 dBm, not '$pw'." }
+    } else {
+        $rh = if ($Given -contains 'ReaderHost') { $ReaderHost } else {
+            Ask 'R220 reader IP address' (Get-IniValue $Ini 'reader' 'host')
+        }
+        $pw = if ($Given -contains 'Power') { $Power } else {
+            Ask 'Pad power (index from the field test; 0 = max 32.5 dBm, 21 = 15 dBm, 41 = 20 dBm)' (Get-IniValue $Ini 'reader' 'power')
+        }
+        if (-not $pw -or $pw -eq 'none') { $pw = Get-IniValue $Ini 'reader' 'power' }
+        if ($pw -notmatch '^\d+$') { Remove-Item $Ini; throw "Pad power must be a whole number, not '$pw'." }
     }
-    if (-not $pw -or $pw -eq 'none') { $pw = Get-IniValue $Ini 'reader' 'power' }
-    if ($pw -notmatch '^\d+$') { Remove-Item $Ini; throw "Pad power must be a whole number, not '$pw'." }
     $ph = if ($Given -contains 'PrinterHost') { $PrinterHost } else {
         $d = Get-IniValue $Ini 'printer' 'host'
         $shown = if ($d) { $d } else { 'none' }
@@ -155,8 +187,15 @@ function New-AgentIni([string]$Example) {
     if ($rh -eq 'none') { $rh = '' }
     if ($ph -eq 'none') { $ph = '' }
     Set-IniValue $Ini 'agent' 'allowed_origins' $origin
-    Set-IniValue $Ini 'reader' 'host' $rh
-    Set-IniValue $Ini 'reader' 'power' $pw
+    Set-IniValue $Ini 'reader' 'type' $rt
+    if ($rt -eq 'chafon') {
+        Set-IniValue $Ini 'reader' 'host' ''
+        Set-IniValue $Ini 'reader' 'serial_port' ("$sp".ToUpper())
+        Set-IniValue $Ini 'reader' 'power_dbm' $pw
+    } else {
+        Set-IniValue $Ini 'reader' 'host' $rh
+        Set-IniValue $Ini 'reader' 'power' $pw
+    }
     Set-IniValue $Ini 'printer' 'host' $ph
     Write-Host "Created $Ini"
 }
@@ -171,7 +210,7 @@ function Show-AgentStatus([int]$WaitSeconds = 0) {
             $r = $s.reader
             $state = if ($r.connected) { 'connected' } else { "NOT connected ($($r.error))" }
             Write-Host "Agent $($s.version) is running at $url"
-            Write-Host "  reader : $($r.source) - $state"
+            Write-Host "  reader : $($r.type) $($r.source) - $state"
             Write-Host "  printer: $(if ($s.printer.configured) { $s.printer.host } else { 'none configured' })"
             return $true
         } catch {
@@ -244,7 +283,7 @@ switch ($PSCmdlet.ParameterSetName) {
         Assert-Admin
         Disable-ScheduledTask -TaskName $TaskName | Out-Null
         Stop-ScheduledTask -TaskName $TaskName
-        Write-Host 'Agent stopped and disabled. The R220 is free for the testing\ scripts. Use -Resume to bring it back.'
+        Write-Host 'Agent stopped and disabled. The reader is free for the testing\ scripts and stocktake. Use -Resume to bring it back.'
         return
     }
     'Resume' {
@@ -277,7 +316,7 @@ if (-not $fromRepo -and -not $Koha) {
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 
 if ($fromRepo) {
-    $package = "$Repo[reader]"
+    $package = "$Repo[r220]"
     $example = Join-Path $PSScriptRoot 'agent.example.ini'
     Write-Host "Installing the agent from the repo $Repo"
 } else {
@@ -298,7 +337,7 @@ if ($fromRepo) {
     if ($PSCommandPath -and ((Get-FileHash $newInstaller).Hash -ne (Get-FileHash $PSCommandPath).Hash)) {
         Write-Host 'Running the installer from the Koha server ...'
         $pass = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $newInstaller, '-Koha', $Koha, '-InstallDir', $InstallDir)
-        foreach ($n in 'Python', 'ReaderHost', 'Power', 'PrinterHost') {
+        foreach ($n in 'Python', 'ReaderType', 'ReaderHost', 'SerialPort', 'Power', 'PrinterHost') {
             if ($Given -contains $n) {
                 $v = Get-Variable -Name $n -ValueOnly
                 # Windows PowerShell drops empty arguments; 'none' means empty.
@@ -314,7 +353,7 @@ if ($fromRepo) {
     if (-not $m) { throw "The installer on $Koha names no agent package. Rebuild the plugin with deploy/build_plugin.py." }
     $wheel = Get-KohaFile $m.Matches[0].Groups[1].Value $dl
     $example = Get-KohaFile 'agent.example.ini' $dl
-    $package = "$wheel[reader]"
+    $package = "$wheel[r220]"
 }
 
 $py = Get-Python

@@ -13,6 +13,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Tuple
 
+from ..readers import READER_TYPES
+
 
 @dataclass
 class AgentConfig:
@@ -20,11 +22,18 @@ class AgentConfig:
     allowed_origins: Tuple[str, ...] = ()    # Koha staff interface origin(s)
     log_file: str = ""
 
+    reader_type: str = "r220"       # see koha_rfid.readers.READER_TYPES
+    # type = r220: Impinj R220 over LLRP (test reader; stocktake)
     reader_host: str = ""
     reader_port: int = 5084
     antennas: Tuple[int, ...] = (1,)
     power: int = 0                  # index into the R220 power table, 0 = max
     session: int = 0                # 0: tags answer on every round, so presence is live
+    # type = chafon: Chafon CF606 over USB. NOT CONFIRMED for any implementation, no driver yet
+    serial_port: str = ""           # e.g. COM3
+    baud: int = 57600
+    power_dbm: int = 20             # 5..26 dBm
+    # any reader
     pad_seconds: float = 2.0        # a tag counts as on the pad this long after its last read
     retry_seconds: float = 10.0     # wait between reader reconnect attempts
     keepalive_ms: int = 10_000
@@ -61,11 +70,18 @@ def load(path: Optional[str]) -> AgentConfig:
         log_file = os.path.join(os.path.dirname(c.path), log_file)
     c.log_file = log_file
 
+    c.reader_type = r.get("type", c.reader_type).strip().lower() or c.reader_type
+    if c.reader_type not in READER_TYPES:
+        raise ValueError(f"[reader] type must be one of {', '.join(READER_TYPES)}, "
+                         f"not {c.reader_type!r}")
     c.reader_host = r.get("host", "").strip()
     c.reader_port = int(r.get("port", c.reader_port))
     c.antennas = tuple(int(x) for x in _list(r.get("antennas", "1")))
     c.power = int(r.get("power", c.power))
     c.session = int(r.get("session", c.session))
+    c.serial_port = r.get("serial_port", "").strip()
+    c.baud = int(r.get("baud", c.baud))
+    c.power_dbm = int(r.get("power_dbm", c.power_dbm))
     c.pad_seconds = float(r.get("pad_seconds", c.pad_seconds))
     c.retry_seconds = float(r.get("retry_seconds", c.retry_seconds))
     c.keepalive_ms = int(r.get("keepalive_ms", c.keepalive_ms))
@@ -98,6 +114,28 @@ def _host(v) -> str:
     if v and not _HOST.match(v):
         raise ValueError("must be an IP address or host name, or empty")
     return v
+
+
+_SERIAL = re.compile(r"^(?:COM[1-9][0-9]{0,2}|/dev/tty[A-Za-z0-9_.\-]+)$", re.I)
+BAUD_RATES = (9600, 19200, 38400, 57600, 115200)
+
+
+def _serial_port(v) -> str:
+    v = "" if v is None else str(v).strip()
+    if v and not _SERIAL.match(v):
+        raise ValueError("must be a serial port like COM3 (or /dev/ttyUSB0), or empty")
+    return v.upper() if v.upper().startswith("COM") else v
+
+
+def _choice(options: Tuple) -> Callable[[object], str]:
+    allowed = {str(o).lower(): str(o) for o in options}
+
+    def check(v) -> str:
+        key = "" if v is None or isinstance(v, bool) else str(v).strip().lower()
+        if key not in allowed:
+            raise ValueError(f"must be one of: {', '.join(allowed.values())}")
+        return allowed[key]
+    return check
 
 
 def _int(lo: int, hi: int) -> Callable[[object], str]:
@@ -142,11 +180,18 @@ def _antennas(v) -> str:
 # section -> key -> validator returning the INI text
 EDITABLE: Dict[str, Dict[str, Callable[[object], str]]] = {
     "reader": {
+        "type": _choice(READER_TYPES),
+        # type = r220
         "host": _host,
         "port": _int(1, 65535),
         "antennas": _antennas,
         "power": _int(0, 91),          # R220 power table: 0 = max, 1..91 = 10..32.5 dBm
         "session": _int(0, 3),
+        # type = chafon (CF606: not confirmed, no driver yet)
+        "serial_port": _serial_port,
+        "baud": _choice(BAUD_RATES),
+        "power_dbm": _int(5, 26),      # CF606 range, 1 dB steps
+        # any reader
         "pad_seconds": _seconds(0.2, 30),
         "retry_seconds": _seconds(1, 300),
     },
@@ -160,9 +205,11 @@ EDITABLE: Dict[str, Dict[str, Callable[[object], str]]] = {
 def editable_values(c: AgentConfig) -> Dict[str, Dict[str, object]]:
     """The current values of the EDITABLE settings, shaped like a POST /config body."""
     return {
-        "reader": {"host": c.reader_host, "port": c.reader_port, "antennas": list(c.antennas),
-                   "power": c.power, "session": c.session, "pad_seconds": c.pad_seconds,
-                   "retry_seconds": c.retry_seconds},
+        "reader": {"type": c.reader_type,
+                   "host": c.reader_host, "port": c.reader_port, "antennas": list(c.antennas),
+                   "power": c.power, "session": c.session,
+                   "serial_port": c.serial_port, "baud": c.baud, "power_dbm": c.power_dbm,
+                   "pad_seconds": c.pad_seconds, "retry_seconds": c.retry_seconds},
         "printer": {"host": c.printer_host, "port": c.printer_port},
     }
 

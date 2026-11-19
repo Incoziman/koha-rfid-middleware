@@ -66,7 +66,7 @@ class ReaderRunner(threading.Thread):
     """Keeps a reader running: connects, watches it, reconnects after failures.
 
     `factory(on_epc)` returns an object with start() / stop() / is_alive()
-    (koha_rfid.reader.R220Reader or FakeReader).
+    (see koha_rfid.readers; make_reader_factory picks one from the config).
     """
 
     def __init__(self, factory: Callable, pad: PadState, retry_seconds: float = 10.0,
@@ -106,17 +106,3 @@ class ReaderRunner(threading.Thread):
     def stop(self) -> None:
         self._halt.set()
 
-
-def make_reader_factory(cfg) -> Callable:
-    """The reader the config asks for: fake tags if fake_epcs is set, else the R220."""
-    if cfg.fake_epcs:
-        from ..reader import FakeReader
-        return lambda on_epc: FakeReader(on_epc, cfg.fake_epcs)
-    if not cfg.reader_host:
-        def no_reader(on_epc):
-            raise RuntimeError("no [reader] host set in the agent config")
-        return no_reader
-    from ..reader import R220Reader
-    return lambda on_epc: R220Reader(cfg.reader_host, on_epc, port=cfg.reader_port,
-                                     antennas=cfg.antennas, power=cfg.power,
-                                     session=cfg.session, keepalive_ms=cfg.keepalive_ms)

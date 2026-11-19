@@ -92,7 +92,7 @@ reader adapter  →  EPC decoder  →  barcode lookup (koha_rfid.barcode)  →  
    changes          may change         never changes                        never changes
 ```
 
-Write the reader part behind one small interface, e.g. `read_barcodes() -> set[str]`, so swapping hardware means writing a new adapter, not changing the rest.
+That split now exists: every reader is an adapter in [`koha_rfid/readers/`](../../koha_rfid/readers/) with the same `start()` / `stop()` / `is_alive()` shape, chosen by `[reader] type` in the desk agent. Which reader does what, and the candidate cheap desk reader (the **Chafon CF606, not confirmed for any implementation**), are in [`../hardware/README.md`](../hardware/README.md). The R220 moves to [stocktake](../stocktake/stocktake.md).
 
 ### Desktop USB UHF reader (pad-style, much cheaper)
 

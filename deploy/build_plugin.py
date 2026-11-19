@@ -20,6 +20,7 @@ setuptools into pip's cache).
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -61,6 +62,9 @@ def check_versions() -> str:
 
 
 def build_wheel(out_dir: str) -> str:
+    # setuptools reuses build/lib, so a module deleted or moved in the source
+    # (e.g. koha_rfid/reader.py -> readers/) would still end up in the wheel.
+    shutil.rmtree(os.path.join(ROOT, "build", "lib"), ignore_errors=True)
     r = subprocess.run([sys.executable, "-m", "pip", "wheel", ROOT, "--no-deps", "--quiet",
                         "--disable-pip-version-check", "-w", out_dir],
                        capture_output=True, text=True)

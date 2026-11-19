@@ -39,7 +39,7 @@ def gather(a):
     """[(tag_barcode, epc or None)] from --barcode values and/or the reader."""
     out = [(b.strip(), None) for b in a.barcode if b.strip()]
     if a.reader:
-        from koha_rfid.reader import collect_epcs
+        from koha_rfid.readers.r220 import collect_epcs
         print(f"Reading tags for {a.read_seconds:.0f}s on antenna(s) {a.antennas} ...")
         try:
             epcs = collect_epcs(a.reader, a.read_seconds, antennas=a.antennas,

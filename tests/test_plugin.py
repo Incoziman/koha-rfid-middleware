@@ -95,7 +95,10 @@ class Plugin(unittest.TestCase):
         self.assertIn(f"$BundledWheel = '{wheel_name}'", installer)
 
         self.assertIn("koha_rfid/agent/__main__.py", wheel_files)
-        self.assertRegex(metadata, r"Requires-Dist: sllurp==2\.0\.1; extra == .reader.")
+        self.assertRegex(metadata, r"Requires-Dist: sllurp==2\.0\.1; extra == .r220.")
+        self.assertIn("koha_rfid/readers/chafon.py", wheel_files)
+        self.assertIn("koha_rfid/stocktake/__main__.py", wheel_files)
+        self.assertNotIn("koha_rfid/reader.py", wheel_files)       # moved to readers/: no stale copy
 
     @unittest.skipUnless(shutil.which("powershell") or shutil.which("pwsh"), "PowerShell not installed")
     def test_installer_parses(self):
@@ -129,6 +132,15 @@ class Plugin(unittest.TestCase):
         r = subprocess.run([shutil.which("powershell") or shutil.which("pwsh"), "-NoProfile", "-Command", check],
                            capture_output=True, text=True, timeout=120)
         self.assertEqual(r.returncode, 0, "uncaptured output in a function:\n" + r.stdout + r.stderr)
+
+    def test_configure_page_reader_types(self):
+        with open(os.path.join(PLUGIN, "Koha", "Plugin", "Org", "Middelburg", "RFIDDesk", "configure.tt"),
+                  encoding="utf-8") as fh:
+            page = fh.read()
+        self.assertIn('data-key="reader.type"', page)
+        for key in ("reader.serial_port", "reader.baud", "reader.power_dbm", "reader.host", "reader.power"):
+            self.assertIn(f'data-key="{key}"', page)
+        self.assertIn("not confirmed for any implementation", page)    # the CF606 warning
 
     @unittest.skipUnless(shutil.which("node"), "node not installed")
     def test_page_script(self):

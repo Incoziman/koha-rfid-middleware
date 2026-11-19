@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 from koha_rfid import sip2  # noqa: E402
 from koha_rfid.barcode import classify  # noqa: E402
 from koha_rfid.epc import NotLibraryTag, decode_epc  # noqa: E402
-from koha_rfid.reader import R220Reader  # noqa: E402
+from koha_rfid.readers.r220 import R220Reader  # noqa: E402
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)

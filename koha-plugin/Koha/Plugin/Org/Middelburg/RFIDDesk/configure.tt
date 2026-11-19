@@ -78,15 +78,49 @@
 
                     <form id="rfid-agent-form" class="form-horizontal" novalidate>
                         <fieldset class="rows">
-                            <legend>RFID reader (Impinj R220)</legend>
+                            <legend>RFID reader</legend>
                             <ol>
                                 <li>
+                                    <label for="rfid-reader-type">Reader:</label>
+                                    <select id="rfid-reader-type" data-key="reader.type">
+                                        <option value="r220">Impinj R220 (network, test reader)</option>
+                                        <option value="chafon">Chafon CF606 (USB) - NOT confirmed</option>
+                                    </select>
+                                    <div class="rfid-err error" data-for="reader.type"></div>
+                                </li>
+                                <li data-reader-type="chafon">
+                                    <div class="dialog alert rfid-cf606-warning">
+                                        <strong>The Chafon CF606 is a candidate only.</strong> It is <strong>not confirmed for any implementation</strong>,
+                                        has not been tested, and its driver has not been written. With this reader type the agent reports the reader
+                                        as not connected. Use the Impinj R220 for now.
+                                    </div>
+                                </li>
+                                <li data-reader-type="chafon">
+                                    <label for="rfid-reader-serial_port">COM port:</label>
+                                    <input type="text" id="rfid-reader-serial_port" data-key="reader.serial_port" size="10" placeholder="e.g. COM3" />
+                                    <span class="hint">Shown in Windows Device Manager under <em>Ports (COM &amp; LPT)</em>. Empty if this desk has no reader.</span>
+                                    <div class="rfid-err error" data-for="reader.serial_port"></div>
+                                </li>
+                                <li data-reader-type="chafon">
+                                    <label for="rfid-reader-power_dbm">Pad power:</label>
+                                    <input type="number" id="rfid-reader-power_dbm" data-key="reader.power_dbm" min="5" max="26" step="1" style="width: 6em;" /> dBm
+                                    <span class="hint">5&ndash;26. Lower it until books about 1 m from the pad are no longer listed under <em>On the pad now</em>.</span>
+                                    <div class="rfid-err error" data-for="reader.power_dbm"></div>
+                                </li>
+                                <li data-reader-type="chafon">
+                                    <label for="rfid-reader-baud">Baud rate:</label>
+                                    <select id="rfid-reader-baud" data-key="reader.baud">
+                                        <option>9600</option><option>19200</option><option>38400</option><option>57600</option><option>115200</option>
+                                    </select>
+                                    <div class="rfid-err error" data-for="reader.baud"></div>
+                                </li>
+                                <li data-reader-type="r220">
                                     <label for="rfid-reader-host">IP address:</label>
                                     <input type="text" id="rfid-reader-host" data-key="reader.host" size="20" placeholder="e.g. 192.168.1.3" />
                                     <span class="hint">Empty if this desk has no reader.</span>
                                     <div class="rfid-err error" data-for="reader.host"></div>
                                 </li>
-                                <li>
+                                <li data-reader-type="r220">
                                     <label for="rfid-reader-power">Pad power:</label>
                                     <input type="number" id="rfid-reader-power" data-key="reader.power" min="0" max="91" step="1" style="width: 6em;" />
                                     <strong id="rfid-power-dbm"></strong>
@@ -102,7 +136,7 @@
                                         </table>
                                     </div>
                                 </li>
-                                <li>
+                                <li data-reader-type="r220">
                                     <label for="rfid-reader-antennas">Antennas:</label>
                                     <input type="text" id="rfid-reader-antennas" data-key="reader.antennas" size="10" />
                                     <span class="hint">Antenna ports in use, 1&ndash;4, comma-separated. Normally <code>1</code>.</span>
@@ -120,13 +154,13 @@
                                     <span class="hint">When the reader is off or unplugged.</span>
                                     <div class="rfid-err error" data-for="reader.retry_seconds"></div>
                                 </li>
-                                <li>
+                                <li data-reader-type="r220">
                                     <label for="rfid-reader-session">Session:</label>
                                     <input type="number" id="rfid-reader-session" data-key="reader.session" min="0" max="3" step="1" style="width: 6em;" />
                                     <span class="hint">Gen2 session. Keep <code>0</code>: tags answer every round, so the pad list is live.</span>
                                     <div class="rfid-err error" data-for="reader.session"></div>
                                 </li>
-                                <li>
+                                <li data-reader-type="r220">
                                     <label for="rfid-reader-port">LLRP port:</label>
                                     <input type="number" id="rfid-reader-port" data-key="reader.port" min="1" max="65535" style="width: 7em;" />
                                     <span class="hint">Normally <code>5084</code>.</span>
@@ -218,9 +252,18 @@
                 function fmt(v) { return Array.isArray(v) ? v.join(", ") : (v === null || v === undefined ? "" : String(v)); }
                 function valueOf(key) { var p = key.split("."); return loaded && loaded[p[0]] ? loaded[p[0]][p[1]] : ""; }
 
+                // Show only the settings of the selected reader type.
+                function showReaderType() {
+                    var type = $("rfid-reader-type").value || "r220";
+                    Array.prototype.forEach.call(form.querySelectorAll("[data-reader-type]"), function (li) {
+                        li.style.display = li.getAttribute("data-reader-type") === type ? "" : "none";
+                    });
+                }
+
                 function fillForm() {
                     inputs.forEach(function (el) { el.value = fmt(valueOf(el.getAttribute("data-key"))); });
                     $("rfid-power-dbm").textContent = dbm($("rfid-reader-power").value);
+                    showReaderType();
                     dirty = false;
                 }
 
@@ -255,13 +298,15 @@
                     $("rfid-agent-online").style.display = "";
                     text("rfid-st-agent", "koha-rfid agent " + s.version + " at " + agentUrl);
                     var r = s.reader || {};
+                    var kind = { r220: "Impinj R220 ", chafon: "Chafon CF606 (not confirmed) " }[r.type] || "";
                     if (r.connected) {
-                        text("rfid-st-reader", "Connected to " + (r.source === "fake" ? "fake tags (fake_epcs)" : r.source)
+                        text("rfid-st-reader", "Connected to " + (r.source === "fake" ? "fake tags (fake_epcs)" : kind + r.source)
                              + ", for " + ago(r.since), "rfid-ok");
                     } else if (!r.source) {
-                        text("rfid-st-reader", "None set: enter the reader's IP address below.", "rfid-bad");
+                        text("rfid-st-reader", "None set: enter the reader's " + (r.type === "chafon" ? "COM port" : "IP address")
+                             + " below.", "rfid-bad");
                     } else {
-                        text("rfid-st-reader", "NOT connected to " + r.source + ": " + (r.error || "connecting")
+                        text("rfid-st-reader", "NOT connected to " + kind + r.source + ": " + (r.error || "connecting")
                              + " (for " + ago(r.since) + ", retrying)", "rfid-bad");
                     }
                     var p = s.printer || {};
@@ -314,6 +359,11 @@
                     dirty = true;
                     if (e.target.id === "rfid-reader-power") { $("rfid-power-dbm").textContent = dbm(e.target.value); }
                     text("rfid-agent-result", "");
+                });
+                // Selects: older browsers fire only "change".
+                form.addEventListener("change", function (e) {
+                    dirty = true;
+                    if (e.target.id === "rfid-reader-type") { showReaderType(); }
                 });
                 $("rfid-printer-zebra").addEventListener("click", function () {
                     $("rfid-printer-host").value = "192.168.1.2"; dirty = true; text("rfid-agent-result", "");
@@ -386,7 +436,7 @@
             <ul>
                 <li>It installs the desk agent [% plugin_version | html %] (and Python 3.12 if needed), and starts it in the background from then on.
                     The PC needs internet access during the install, for the Python packages.</li>
-                <li>The first time, it asks for the RFID reader's IP address, the pad power and the label printer's IP address. Press Enter to skip any of them.
+                <li>The first time, it asks for the reader type (<code>r220</code>; the Chafon CF606 is not confirmed yet), the RFID reader's IP address, the pad power and the label printer's IP address. Press Enter to skip any of them.
                     They are kept in <code>C:\koha-rfid\agent.ini</code>. Change them later under <a href="#this-desk">This desk PC</a> above, on that PC.</li>
                 <li>After upgrading this plugin, update each desk PC with <code>C:\koha-rfid\install_agent.ps1 -Update</code> (as administrator),
                     or paste the command again.</li>

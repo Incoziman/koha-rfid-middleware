@@ -24,7 +24,8 @@ from typing import Callable, Optional, Tuple
 from .. import __version__, labels
 from . import config
 from .config import AgentConfig
-from .pad import PadState, ReaderRunner, make_reader_factory
+from ..readers import make_reader_factory
+from .pad import PadState, ReaderRunner
 
 log = logging.getLogger("koha_rfid.agent")
 MAX_BODY = 64 * 1024
@@ -66,7 +67,8 @@ class Agent:
         cfg, pad = self.cfg, self.pad
         reader = {"connected": pad.connected, "error": pad.error,
                   "since": round(pad.state_seconds()),
-                  "source": "fake" if cfg.fake_epcs else (cfg.reader_host or None)}
+                  "type": "fake" if cfg.fake_epcs else cfg.reader_type,
+                  "source": _reader_source(cfg)}
         printer = {"configured": bool(cfg.printer_host), "host": cfg.printer_host or None}
         return {"agent": "koha-rfid", "version": __version__, "reader": reader, "printer": printer,
                 "pad_seconds": cfg.pad_seconds,
@@ -120,7 +122,7 @@ class Agent:
             old = self.runner
             old.stop()
             if old.is_alive():
-                old.join(timeout=20)                # frees the R220 (one connection only)
+                old.join(timeout=20)                # frees the reader (one connection only)
                 if old.is_alive():
                     log.warning("old reader connection still closing; the new one will retry")
             self.cfg = cfg
@@ -157,6 +159,15 @@ class Agent:
                 return 502, {"error": f"printer {self.cfg.printer_host} not reachable: {e}"}
         log.info("printed %s", ", ".join(f"{r.barcode}={r.status}" for r in results))
         return 200, {"results": [r.__dict__ for r in results]}
+
+
+def _reader_source(cfg: AgentConfig) -> Optional[str]:
+    """Where the reader is: "fake", its address or COM port, or None if not set."""
+    if cfg.fake_epcs:
+        return "fake"
+    if cfg.reader_type == "chafon":
+        return cfg.serial_port or None
+    return cfg.reader_host or None
 
 
 def _make_handler(agent: Agent):
